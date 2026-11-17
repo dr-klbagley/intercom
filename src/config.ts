@@ -1,9 +1,18 @@
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const HERMES_HOME = path.join(os.homedir(), '.hermes');
+
+/** One value from Jarvis's ~/.hermes/.env (empty if missing). Never logged. */
+function hermesEnv(name: string): string {
+  try {
+    const line = fs.readFileSync(path.join(HERMES_HOME, '.env'), 'utf8').split('\n').find((l) => l.startsWith(`${name}=`));
+    return line ? line.slice(name.length + 1).trim().replace(/^["']|["']$/g, '') : '';
+  } catch { return ''; }
+}
 
 export interface Config {
   port: number;
@@ -28,6 +37,12 @@ export interface Config {
   webDir: string;
   voice: string;
   speed: number;
+  vaultDir: string;
+  vaultScript: string;
+  dashboardUrl: string;
+  slotheriumUrl: string;
+  /** Jarvis's Slotherium MCP key (read from ~/.hermes/.env unless INTERCOM_SLOTHERIUM_KEY is set). */
+  slotheriumKey: string;
   /** Minutes between background refreshes of mail, calendar and digests (0 = off). */
   prefetchMinutes: number;
   /** Local hours [start, end) when the prefetch runs. */
@@ -63,6 +78,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webDir: env.INTERCOM_WEB_DIR ?? path.join(root, 'web'),
     voice: env.INTERCOM_VOICE ?? 'bm_george',
     speed: Number(env.INTERCOM_SPEED ?? 1.3),
+    vaultDir: env.INTERCOM_VAULT_DIR ?? path.join(os.homedir(), 'JarvisVault'),
+    vaultScript: path.join(root, 'scripts/vault_gather.py'),
+    dashboardUrl: env.INTERCOM_DASHBOARD_URL ?? 'http://127.0.0.1:4180',
+    slotheriumUrl: env.INTERCOM_SLOTHERIUM_URL ?? 'http://127.0.0.1:4173/mcp',
+    slotheriumKey: env.INTERCOM_SLOTHERIUM_KEY ?? hermesEnv('MCP_SLOTHERIUM_API_KEY'),
     prefetchMinutes: Number(env.INTERCOM_PREFETCH_MINUTES ?? 5),
     prefetchHours: [Number(env.INTERCOM_PREFETCH_FROM ?? 6), Number(env.INTERCOM_PREFETCH_UNTIL ?? 23)],
   };

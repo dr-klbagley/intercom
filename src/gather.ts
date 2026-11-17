@@ -37,13 +37,21 @@ interface Options {
   digestScript: string;
   /** scripts/calendar.sh in this repo (Jarvis's calendar helper without `open -W`). */
   calendarScript: string;
+  /** Jarvis vault + scripts/vault_gather.py, for research, LinkedIn and Mind Stone. */
+  vaultDir?: string;
+  vaultScript?: string;
+  /** Household dashboard, for "is everything running?". */
+  dashboardUrl?: string;
+  /** Open to-dos, as text (Slotherium). */
+  todos?: () => Promise<string>;
   log?: (line: string) => void;
   timeoutMs?: number;
   /** How long a fetched part is reused (default 6 min; the prefetch refreshes every 5). */
   cacheMs?: number;
 }
 
-type Part = 'mc2' | 'mc7' | 'headlines' | 'briefing';
+type Part = 'mc2' | 'mc7' | 'headlines' | 'briefing' | 'todos' | 'research' | 'linkedin' | 'mindstone' | 'system';
+const SIMPLE: Part[] = ['todos', 'research', 'linkedin', 'mindstone', 'system'];
 const HEADLINES = 'Medicaid & Health Insurance Headlines — ';
 const BRIEFING = 'Daily briefing — ';
 const clock = (d: Date) => d.toLocaleTimeString('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit' });
@@ -74,6 +82,7 @@ export class ScriptGatherer implements Gatherer {
     if (topics.has('mail') || topics.has('calendar')) parts.push(/\b(week|7 days|seven days)\b/i.test(question) ? 'mc7' : 'mc2');
     if (topics.has('headlines')) parts.push('headlines');
     if (topics.has('briefing')) parts.push('briefing');
+    for (const p of SIMPLE) if (topics.has(p as Topic)) parts.push(p);
     return parts;
   }
 
@@ -90,7 +99,7 @@ export class ScriptGatherer implements Gatherer {
   private fetch(part: Part): Promise<string> {
     let p = this.inflight.get(part);
     if (!p) {
-      p = (part === 'mc2' ? this.mailAndCalendar(2) : part === 'mc7' ? this.mailAndCalendar(7) : this.digest(part === 'headlines' ? HEADLINES : BRIEFING))
+      p = this.load(part)
         .then((text) => { this.cache.set(part, { at: Date.now(), text }); return text; })
         .finally(() => this.inflight.delete(part));
       this.inflight.set(part, p);
@@ -98,9 +107,38 @@ export class ScriptGatherer implements Gatherer {
     return p;
   }
 
+  private load(part: Part): Promise<string> {
+    const timeout = this.opts.timeoutMs ?? 45_000;
+    switch (part) {
+      case 'mc2': return this.mailAndCalendar(2);
+      case 'mc7': return this.mailAndCalendar(7);
+      case 'headlines': return this.digest(HEADLINES);
+      case 'briefing': return this.digest(BRIEFING);
+      case 'todos':
+        if (!this.opts.todos) return Promise.reject(new Error('Slotherium is not configured'));
+        return this.opts.todos();
+      case 'system': return this.systemStatus();
+      default:
+        if (!this.opts.vaultDir || !this.opts.vaultScript) return Promise.reject(new Error('vault not configured'));
+        return run('/usr/bin/python3', [this.opts.vaultScript, this.opts.vaultDir, part], timeout, this.opts.vaultDir);
+    }
+  }
+
+  /** The household dashboard's own roll-up: each service's level, and the failing checks. */
+  private async systemStatus(): Promise<string> {
+    const res = await fetch(`${this.opts.dashboardUrl ?? 'http://127.0.0.1:4180'}/api/status`, { signal: AbortSignal.timeout(8000) });
+    if (!res.ok) throw new Error(`dashboard HTTP ${res.status}`);
+    const s = await res.json() as { level: string; checkedAt: string; services: { name: string; group: string; level: string; checks: { name: string; level: string; summary: string }[] }[] };
+    const lines = s.services.map((svc) => {
+      const bad = svc.checks.filter((c) => c.level !== 'up').map((c) => `${c.name}: ${c.summary}`);
+      return `- ${svc.name} (${svc.group}): ${svc.level}${bad.length ? ` — ${bad.join('; ')}` : ''}`;
+    });
+    return `Overall: ${s.level} (checked ${s.checkedAt})\n${lines.join('\n')}`;
+  }
+
   /** Keeps the common parts warm so most questions skip the fetch (spec §7). Errors are logged, not thrown. */
   async prefetch(): Promise<void> {
-    await Promise.all((['mc2', 'headlines', 'briefing'] as Part[]).map((p) =>
+    await Promise.all((['mc2', 'headlines', 'briefing', 'todos', 'research', 'linkedin', 'mindstone', 'system'] as Part[]).map((p) =>
       this.fetch(p).catch((err: Error) => this.opts.log?.(`prefetch ${p}: ${err.message.slice(0, 300)}`))));
   }
 
@@ -128,9 +166,13 @@ export class ScriptGatherer implements Gatherer {
       } else if (r.part === 'headlines') {
         out.push(r.ok ? `## Latest headlines digest Jarvis emailed Kevin\n${r.text}` : 'HEADLINES UNAVAILABLE: no digest emailed in the last 2 days.');
         if (r.ok) sources.push('headlines');
-      } else {
+      } else if (r.part === 'briefing') {
         out.push(r.ok ? `## This morning's briefing Jarvis emailed Kevin\n${r.text}` : 'BRIEFING UNAVAILABLE: no briefing emailed in the last 2 days.');
         if (r.ok) sources.push('briefing');
+      } else {
+        const title = { todos: "Kevin's open to-dos (Slotherium)", system: 'Mac mini status (household dashboard)', research: '', linkedin: '', mindstone: '' }[r.part];
+        out.push(r.ok ? (title ? `## ${title}${asOf}\n${r.text}` : r.text) : `${r.part.toUpperCase()} UNAVAILABLE: ${r.text.slice(0, 300)}. Say it couldn't be checked.`);
+        if (r.ok) sources.push(r.part);
       }
     }
     return { context: out.join('\n\n'), sources, live };

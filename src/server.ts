@@ -4,6 +4,7 @@ import { loadConfig } from './config.js';
 import { ScriptGatherer } from './gather.js';
 import { hermesClient, hermesReachable } from './hermes.js';
 import { sidecarClient } from './sidecar.js';
+import { formatTodos, slotheriumClient, type Todo } from './slotherium.js';
 import { AudioStore, TurnRunner } from './turns.js';
 
 process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err));
@@ -15,7 +16,14 @@ const hermesOpts = {
 };
 const speech = sidecarClient(cfg.sidecarUrl);
 const audio = new AudioStore();
+const slotherium = cfg.slotheriumKey ? slotheriumClient(cfg.slotheriumUrl, cfg.slotheriumKey) : undefined;
 const gatherer = new ScriptGatherer({
+  vaultDir: cfg.vaultDir,
+  vaultScript: cfg.vaultScript,
+  dashboardUrl: cfg.dashboardUrl,
+  todos: slotherium
+    ? async () => formatTodos(await slotherium.call('list_todos', { status: 'open' }) as Todo[], new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' }))
+    : undefined,
   scriptsDir: cfg.scriptsDir,
   python: cfg.gatherPython,
   digestScript: cfg.digestScript,

@@ -1,19 +1,24 @@
 // Which read-only context a question needs (spec §7, §8).
 
-export type Topic = 'mail' | 'calendar' | 'headlines' | 'briefing';
+export type Topic = 'mail' | 'calendar' | 'headlines' | 'briefing' | 'todos' | 'research' | 'linkedin' | 'mindstone' | 'system';
 
 const RULES: [Topic, RegExp][] = [
   ['mail', /\b(e-?mails?|inbox|mail|messages?|tier\s*(1|2|one|two)|vips?|wrote|written|sent me|replied|reply from|heard from|from (brent|zane|jared))\b/i],
   ['calendar', /\b(calendar|schedule|meetings?|agenda|appointments?|events?|busy|free|availability|today|tonight|tomorrow|this (morning|afternoon|evening|week)|next week|monday|tuesday|wednesday|thursday|friday|saturday|sunday|what time|when (is|am|do)|conflicts?)\b/i],
   ['headlines', /\b(news|headlines?|stories|articles?|medicaid|health insurance|aca|marketplace|cms)\b/i],
   ['briefing', /\b(briefing|brief me|morning (summary|update)|catch me up|what('s| is) my day)\b/i],
+  ['todos', /\b(to-?dos?|to do list|todo list|my list|task list|tasks?|slotherium|on my plate|mark (it|that|.{1,40}) (as )?(done|complete))\b/i],
+  ['research', /\b(research|fangorn|entmoot|reading list|briefs|research inbox)\b/i],
+  ['linkedin', /\b(linked ?in|gandalf|rivendell|posts?|posting|weekly plan|thought leadership)\b/i],
+  ['mindstone', /\b(mind ?stone|proposals?|corrections?|my preferences|waiting on me|pending approvals?)\b/i],
+  ['system', /\b(mac mini|servers?|system status|dashboard|is everything (up|working|running|ok|okay)|ollama|services? (up|down|running))\b/i],
 ];
 
 export function classify(question: string): Set<Topic> {
   const topics = new Set<Topic>();
   for (const [topic, re] of RULES) if (re.test(question)) topics.add(topic);
-  // "Today/tomorrow" alone in a mail question ("emails today") is about the inbox, not the calendar.
-  if (topics.has('mail') && topics.has('calendar') && !/\b(calendar|schedule|meetings?|agenda|appointments?|events?|busy|free)\b/i.test(question)) {
+  // A time word alone ("emails today", "my list this week") is about that other topic, not the calendar.
+  if (topics.has('calendar') && topics.size > 1 && !/\b(calendar|schedule|meetings?|agenda|appointments?|events?|busy|free)\b/i.test(question)) {
     topics.delete('calendar');
   }
   return topics;

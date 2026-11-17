@@ -18,6 +18,17 @@ describe('classify', () => {
   });
 });
 
+describe('other profiles and apps', () => {
+  it('routes questions about to-dos, Fangorn, Gandalf, Mind Stone and the Mac mini', () => {
+    expect(t("What's on my to-do list this week?")).toEqual(['todos']);
+    expect(t('Any new briefs from Fangorn?')).toEqual(['research']);
+    expect(t("What's my LinkedIn plan this week?")).toEqual(['linkedin']);
+    expect(t('Anything waiting on me in Mind Stone?')).toEqual(['mindstone']);
+    expect(t('Is everything running on the Mac mini?')).toEqual(['system']);
+    expect(t('Brief me on the morning')).toEqual(['briefing']);
+  });
+});
+
 describe('replies and follow-ups', () => {
   it('treats replies and sign-offs as needing no lookup', () => {
     for (const q of ["Let's have the demo take priority. Thanks, Jarvis.", 'No, thanks.', 'Okay, that\'s everything for today.', 'Perfect.', 'Yes please.']) {
