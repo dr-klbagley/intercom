@@ -27,8 +27,13 @@ interface Options {
 
 function run(cmd: string, args: string[], timeoutMs: number, cwd: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { cwd, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
-      if (err) reject(new Error(`${path.basename(cmd)} failed: ${stderr.toString().slice(0, 300) || err.message}`));
+    // On timeout, SIGABRT makes Python print where it was stuck (PYTHONFAULTHANDLER) instead of dying silently.
+    execFile(cmd, args, { cwd, timeout: timeoutMs, killSignal: 'SIGABRT', env: { ...process.env, PYTHONFAULTHANDLER: '1' }, maxBuffer: 8 * 1024 * 1024 }, (err, stdout, stderr) => {
+      if (err) {
+        const e = err as NodeJS.ErrnoException & { killed?: boolean; signal?: string; code?: number | string };
+        const why = e.killed || e.signal === 'SIGABRT' ? `timed out after ${timeoutMs / 1000}s` : `exit ${e.code ?? '?'}${e.signal ? ` (${e.signal})` : ''}`;
+        reject(new Error(`${path.basename(cmd)} ${why}: ${stderr.toString().trim().slice(-700) || 'no error output'}`));
+      }
       else resolve(stdout.toString());
     });
   });

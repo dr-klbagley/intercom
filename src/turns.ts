@@ -119,6 +119,8 @@ export class TurnRunner {
       if (topics.size) {
         try { context = (await this.deps.gatherer.gather(topics, question)).context; }
         catch (err) { context = `CONTEXT UNAVAILABLE: ${(err as Error).message}`; }
+        // Log only the gatherers' own failure lines (no mail or calendar content) so outages are visible.
+        for (const m of context.matchAll(/^[A-Z ]*UNAVAILABLE[^\n]{0,900}/gm)) this.deps.log?.(`turn ${input.turnId} gather: ${m[0]}`);
       }
       if (signal?.aborted) return;
 

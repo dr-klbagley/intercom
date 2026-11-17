@@ -50,7 +50,7 @@ if [ $APP_ONLY = 0 ]; then
   # ---------------------------------------------------------------- 2. speech sidecar
   step "Setting up the speech sidecar (Python 3.12, mlx-whisper, Kokoro)"
   [ -x "$UV" ] || die "uv not found (expected at $HERMES_HOME/bin/uv)"
-  (cd "$ROOT/sidecar" && "$UV" venv --quiet --python 3.12 .venv && "$UV" pip install --quiet --python .venv/bin/python -r pyproject.toml)
+  (cd "$ROOT/sidecar" && { [ -x .venv/bin/python ] || "$UV" venv --quiet --python 3.12 .venv; } && "$UV" pip install --quiet --python .venv/bin/python -r pyproject.toml)
   KOKORO_URL=https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0
   for f in kokoro-v1.0.onnx voices-v1.0.bin; do
     if [ ! -s "$ROOT/models/$f" ]; then
@@ -79,11 +79,34 @@ else:
     lines[hit] = "  api_server: []"
 open(p, "w").write("\n".join(lines))
 PY
-  "$HERMES_HOME/hermes-agent/venv/bin/python" - "$CFG" <<'PY' || die "couldn't set platform_toolsets.api_server: [] in $CFG"
+  # Plugin toolsets (Home Assistant) attach to every channel regardless of platform_toolsets, so turn
+  # Home Assistant off for all of Jarvis via agent.disabled_toolsets (Kevin's call, 2026-11-16).
+  python3 - "$CFG" <<'PY'
+import re, sys
+p = sys.argv[1]; lines = open(p).read().split("\n")
+start = next((i for i, l in enumerate(lines) if re.match(r"agent:\s*$", l)), None)
+if start is None:
+    lines += ["agent:", "  disabled_toolsets:", "    - homeassistant"]
+else:
+    end = next((i for i in range(start + 1, len(lines)) if lines[i] and not lines[i].startswith((" ", "#"))), len(lines))
+    key = next((i for i in range(start + 1, end) if re.match(r"  disabled_toolsets:", lines[i])), None)
+    if key is None:
+        lines[start + 1:start + 1] = ["  disabled_toolsets:", "    - homeassistant"]
+    elif re.match(r"  disabled_toolsets:\s*\[\s*\]\s*$", lines[key]):
+        lines[key:key + 1] = ["  disabled_toolsets:", "    - homeassistant"]
+    else:
+        items = range(key + 1, end)
+        if not any(re.match(r"\s+-\s+homeassistant\s*$", lines[i]) for i in items):
+            lines.insert(key + 1, "    - homeassistant")
+open(p, "w").write("\n".join(lines))
+PY
+  "$HERMES_HOME/hermes-agent/venv/bin/python" - "$CFG" <<'PY' || die "couldn't set the Hermes tool settings in $CFG"
 import sys, yaml
 c = yaml.safe_load(open(sys.argv[1]))
 assert c["platform_toolsets"]["api_server"] == [], "api_server toolsets not empty"
 assert isinstance(c["gateway"]["api_server"], dict), "gateway.api_server settings were changed"
+assert "homeassistant" in (c["agent"].get("disabled_toolsets") or []), "homeassistant not disabled"
+assert isinstance(c["agent"], dict) and len(c["agent"]) > 1, "agent settings were changed"
 PY
 
   step "Hermes: turning on the API server (127.0.0.1:$API_PORT)"
@@ -105,7 +128,7 @@ PY
   TOOLS="$(curl -fsS -H "Authorization: Bearer $KEY" "http://127.0.0.1:$API_PORT/v1/toolsets")"
   COUNT="$(printf '%s' "$TOOLS" | python3 -c 'import json,sys
 d=json.load(sys.stdin); ts=d.get("toolsets", d.get("data", d)) if isinstance(d, dict) else d
-print(sum(len(t.get("tools", [])) for t in ts) if isinstance(ts, list) else -1)')"
+print(sum(len(t.get("tools", [])) for t in ts if t.get("enabled")) if isinstance(ts, list) else -1)')"
   [ "$COUNT" = "0" ] || die "the API channel still has tools ($COUNT); not installing. Restore with: cp $CFG.bak-pre-intercom $CFG. Response: $(printf '%s' "$TOOLS" | head -c 400)"
 else
   KEY="$(get_env "$HERMES_HOME/.env" API_SERVER_KEY)"
