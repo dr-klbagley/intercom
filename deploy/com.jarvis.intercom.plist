@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Template for ~/Library/LaunchAgents/com.jarvis.intercom.plist. scripts/install.sh fills in the placeholders.
+  A LaunchAgent (not a daemon) so it runs in jarvis's login session, like the Hermes gateway: the calendar
+  helper app and Apple Mail's index both need that session. The installed copy holds the Hermes API key,
+  so it is mode 600. The server refuses to start while any placeholder is left.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.jarvis.intercom</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>REPLACE_NODE</string>
+    <string>REPLACE_ROOT/dist/server.js</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>REPLACE_ROOT</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NODE_ENV</key>
+    <string>production</string>
+    <key>PORT</key>
+    <string>4177</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>INTERCOM_ALLOWED_LOGIN</key>
+    <string>REPLACE_ALLOWED_LOGIN</string>
+    <key>INTERCOM_HERMES_KEY</key>
+    <string>REPLACE_HERMES_KEY</string>
+    <key>INTERCOM_HERMES_PROFILE</key>
+    <string>intercom</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>REPLACE_ROOT/logs/intercom.log</string>
+  <key>StandardErrorPath</key>
+  <string>REPLACE_ROOT/logs/intercom.log</string>
+</dict>
+</plist>

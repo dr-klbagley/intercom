@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template for ~/Library/LaunchAgents/com.jarvis.intercom-sidecar.plist (local speech models). Filled in by scripts/install.sh. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.jarvis.intercom-sidecar</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>REPLACE_ROOT/sidecar/.venv/bin/python</string>
+    <string>REPLACE_ROOT/sidecar/intercom_sidecar.py</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>REPLACE_ROOT/sidecar</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>INTERCOM_MODELS_DIR</key>
+    <string>REPLACE_ROOT/models</string>
+    <key>HF_HUB_DISABLE_TELEMETRY</key>
+    <string>1</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+  <key>StandardOutPath</key>
+  <string>REPLACE_ROOT/logs/sidecar.log</string>
+  <key>StandardErrorPath</key>
+  <string>REPLACE_ROOT/logs/sidecar.log</string>
+</dict>
+</plist>

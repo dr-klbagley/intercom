@@ -51,7 +51,7 @@ Intercom server  — Node 24 + TypeScript, 127.0.0.1:4177   (/intercom)
   ├─► voice sidecar — Python, 127.0.0.1:4178 (loopback only)
   │     ├─ /stt  mlx-whisper (large-v3-turbo) on Metal
   │     └─ /tts  Kokoro (kokoro-onnx), sentence-at-a-time
-  └─► Hermes API — 127.0.0.1:8642, profile `intercom` (read-only toolset, §8)
+  └─► Hermes API — 127.0.0.1:8642, profile `intercom` (no tools, §8)
 ```
 
 Why there's a sidecar: the best speech models for Apple Silicon (MLX Whisper, Kokoro) are Python. The Node server stays like its siblings, and the sidecar exposes two loopback endpoints with no auth beyond loopback-only binding.
@@ -100,24 +100,33 @@ Three intents get near-instant answers from what Jarvis has already prepared:
 
 | Intent | Example phrasing | Source |
 |---|---|---|
-| Morning briefing | "give me the briefing", "what's my day look like" | Output of *Kevin daily email and calendar briefing* (07:30) |
-| Headlines | "what's in the news", "today's headlines" | Output of *Daily Medicaid and health insurance headlines email* (08:30) |
+| Morning briefing | "give me the briefing", "what's my day look like" | The *Daily briefing* email Jarvis sent at 07:30 |
+| Headlines | "what's in the news", "today's headlines" | The *Medicaid & Health Insurance Headlines* email Jarvis sent at 08:30 |
 | Tier 1 today | "anything from tier 1 today" | Log of *Inbox triage* (every 15 min) |
 
 - Matching is by keywords plus a confidence threshold. Anything ambiguous goes to Hermes.
 - The answer always says how old the data is ("As of 7:30 this morning…") and offers **Check again**, which sends the same question to Hermes live.
 - Calendar questions ("tomorrow", "Thursday") always go to Hermes, because calendars change.
-- Briefing outputs are condensed for speech by Hermes once, when each job finishes, through a Intercom webhook. They aren't condensed at question time.
-- **To confirm while building:** where each job's output lives (`~/.hermes/cron/output/<id>/`) and whether the triage log has enough to answer from (it's in "log only" trial mode).
+- Briefing outputs are condensed for speech by Hermes once, when each job finishes, through an Intercom webhook. They aren't condensed at question time.
+- **Confirmed 2026-11-16:** the jobs' own output (`~/.hermes/cron/output/<id>/`) holds only a delivery note, so Intercom reads the emails themselves from Apple Mail (`scripts/latest_digest.py`, read-only, newest from Jarvis's address in the last 2 days).
+- **Still open:** whether the triage log has enough for "tier 1 today" (it's in "log only" trial mode). Until then, tier 1 questions use the live mail gatherer, which already marks each email's triage level.
 
 ## 8. Read-only enforcement (phase 1)
 
-Read-only is enforced in Hermes, not just requested in the prompt.
+Read-only is enforced by design: **Intercom gathers, Jarvis only answers.** This is the same pattern as the 07:30 briefing ("Do not gather anything yourself").
 
-- **A dedicated `intercom` profile** with the same provider, model, memory and vault access as Jarvis, but its toolsets limited to reading: `file` (read), `session_search`, `memory` (read), `skills` (only read-only skills: email search and read, calendar read, briefing lookup), `web`.
-- **Excluded:** `terminal`, `code_execution`, `computer_use`, `browser`, `cronjob`, `delegation`, `kanban`, `connections`, messaging and every send, reply, create, update or delete skill.
+**How Jarvis reads today (confirmed 2026-11-16):**
+- **Mail:** straight from Apple Mail's index (`~/Library/Mail/V10/MailData/Envelope Index`, opened read-only) and `.emlx` files, through the readers in `~/.hermes/scripts/travel_receipts.py` and `briefing_gather.py`. AppleScript is used only to list account names.
+- **Calendar:** EventKit through `Hermes Calendar Helper.app`, called by `~/.hermes/scripts/kevin_calendar.sh`. It covers today plus the next 3 business days.
+- **Preferences, corrections, tiers:** vault notes, loaded by `briefing_gather.py`.
+
+**Design:**
+- **Intercom picks a topic** for each question (mail, calendar, headlines, briefing, general) and runs the matching **read-only gatherer** on the Mac mini: `kevin_calendar.sh` and `briefing_gather.py --calendar … --days N --no-sync` for mail and calendar, and the latest output of the headlines job for news.
+- **The gathered text goes into the Hermes request** as context, marked as untrusted data, alongside the voice instructions and the question.
+- **The `intercom` Hermes profile has no tools** (`platform_toolsets.api_server: []`). Whatever an email says, it has nothing to act with.
 - **Every request** also carries: "This is a read-only voice session. If Kevin asks you to send, reply, schedule, change or delete anything, say you can't do that by voice yet and suggest he ask in iMessage."
-- **To verify first (blocking):** how Jarvis reads Mail and Calendar today (Apple Mail through a skill, AppleScript through `terminal`, or a connector). If reading needs `terminal`, the profile needs a narrow read-only helper (for example `jarvis-mail search|read` and `jarvis-cal list`) exposed as a skill in place of the terminal. That's a small build of its own, and it's on the critical path.
+- **Trade-off:** questions outside the gathered topics ("what did Brent say about pricing last month?") only get what's in the context. Phase 1 answers "I can't look that up by voice yet." Wider read-only search is a phase 1c item.
+- **Permissions:** Intercom's launchd job runs the gatherers as `jarvis`. Reading Mail's index needs Full Disk Access for the Node binary that runs Intercom. Kevin grants it once in System Settings (Intercom can't grant it itself). The calendar helper already has Calendar access.
 - **Test:** a scripted suite of "send / reply / accept / delete / remind me" requests must produce zero side effects (§15).
 
 ## 9. Voice persona and reply style

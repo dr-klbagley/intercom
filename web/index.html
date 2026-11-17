@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1419">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Intercom">
+  <title>Intercom</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon.svg">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="bar">
+    <div class="brand"><span id="dot" class="dot" title="Checking connection"></span> Intercom</div>
+    <div class="actions">
+      <button id="mute" class="icon-btn" aria-pressed="false" title="Mute spoken replies">🔊</button>
+      <button id="new" class="icon-btn" title="New conversation">＋</button>
+    </div>
+  </header>
+
+  <main id="log" class="log" aria-live="polite">
+    <div class="empty" id="empty">
+      <p>Hold the button and ask Jarvis something.</p>
+      <p class="hint">“Any emails from tier 1 senders today?”<br>“What does my calendar look like tomorrow?”<br>“What's in the headlines?”</p>
+    </div>
+  </main>
+
+  <footer class="dock">
+    <form id="typed" class="typed" hidden>
+      <input id="typed-input" type="text" placeholder="Type a question" autocomplete="off" enterkeyhint="send">
+      <button type="submit">Ask</button>
+    </form>
+    <div class="controls">
+      <button id="keyboard" class="icon-btn" title="Type instead">⌨︎</button>
+      <button id="talk" class="talk" aria-label="Hold to talk">
+        <span class="ring"></span><span class="mic">🎙</span>
+      </button>
+      <div class="state" id="state">Hold to talk</div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
