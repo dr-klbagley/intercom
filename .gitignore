@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+*.pyc
+.env
+*.log
+logs/
+models/
+web/models/*.onnx
+.DS_Store
+coverage/
