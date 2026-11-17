@@ -53,6 +53,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     calendarScript: path.join(root, 'scripts/calendar.sh'),
     webDir: env.INTERCOM_WEB_DIR ?? path.join(root, 'web'),
     voice: env.INTERCOM_VOICE ?? 'bm_george',
-    speed: Number(env.INTERCOM_SPEED ?? 1.05),
+    speed: Number(env.INTERCOM_SPEED ?? 1.3),
   };
 }

@@ -9,6 +9,8 @@ export interface AppDeps {
   allowedLogin: string;
   devTrustLocal: boolean;
   webDir: string;
+  /** onnxruntime-web's dist folder, served at /vendor/ort for the wake word. */
+  ortDir?: string;
   health: () => Promise<Record<string, boolean>>;
 }
 
@@ -88,6 +90,7 @@ export function createApp(deps: AppDeps) {
   });
 
   app.use('/api', api);
+  if (deps.ortDir) app.use('/vendor/ort', express.static(deps.ortDir, { maxAge: '7d' }));
   app.use(express.static(deps.webDir, { index: 'index.html', maxAge: 0 }));
   return app;
 }

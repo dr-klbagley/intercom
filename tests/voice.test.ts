@@ -24,7 +24,7 @@ describe('cleanForSpeech', () => {
   });
   it('speaks email addresses and expands days and months', () => {
     expect(cleanForSpeech('Write blayton@twenty.co')).toBe('Write blayton at twenty dot co');
-    expect(cleanForSpeech('Tue, Nov 17 at 10:30:00')).toBe('Tuesday, November 17 at 10:30');
+    expect(cleanForSpeech('Tue, Nov 17 at 10:30:00')).toBe('Tuesday, November 17 at 10 30');
   });
   it('turns & into and and drops list markers', () => {
     expect(cleanForSpeech('- Q&A at noon')).toBe('Q and A at noon');
@@ -56,5 +56,16 @@ describe('SpeechStream', () => {
     const s = new SpeechStream();
     expect(s.push('Nothing from tier 1 today')).toEqual([]);
     expect(s.finish().sentences).toEqual(['Nothing from tier 1 today']);
+  });
+});
+
+describe('times are spoken without a colon', () => {
+  it('reads common time shapes naturally', () => {
+    expect(cleanForSpeech('Your demo is at 3:30.')).toBe('Your demo is at 3 30.');
+    expect(cleanForSpeech('Pickup at 3:00 p.m. today.')).toBe('Pickup at 3 PM today.');
+    expect(cleanForSpeech('Standup at 9:05am.')).toBe('Standup at 9 oh 5 AM.');
+    expect(cleanForSpeech('Hold from 10:30–11:00.')).toBe("Hold from 10 30 to 11 o'clock.");
+    expect(cleanForSpeech('Lunch at 12:00.')).toBe("Lunch at 12 o'clock.");
+    expect(cleanForSpeech('I am free.')).toBe('I am free.');
   });
 });

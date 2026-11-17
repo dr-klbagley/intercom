@@ -76,6 +76,7 @@ Both run as launchd agents under `jarvis`, installed by `install.sh` like Mind S
 - **Barge-in:** saying the wake word, or tapping the button, while Jarvis is speaking stops him and starts listening.
 - **Echo:** the mic uses the browser's echo cancellation (`echoCancellation: true`), and detection is paused while TTS plays except for barge-in, which needs a stricter detection threshold.
 - **Limits, shown on screen:** it only works while the page is open, in the foreground, and the screen is on. To keep an iPhone listening on a desk or in the car, the app holds a Screen Wake Lock while the wake word is on. Sensitivity has three presets (Low, Normal, High) and a test mode that shows the detection score.
+- **Built (2026-11-17):** `web/wakeword.js` (detector plus a 16 kHz resampling AudioWorklet), models fetched by `install.sh` into `web/models/`, onnxruntime-web served from `/vendor/ort`. Threshold 0.5, fixed for now (no sensitivity presets or test mode yet). Tap mode and the follow-up window end 3 s after Kevin stops talking (changed from about 1 s at his request).
 - **"Hey J":** not in phase 1. openWakeWord can train custom phrases from synthetic speech. That's a phase 1c task, using the same browser pipeline with a different model file.
 - **Fallback:** if a browser can't run the model (old device, no WebAssembly SIMD), the toggle is disabled with the reason, and push-to-talk still works.
 
@@ -140,7 +141,7 @@ The voice instructions sent with every turn:
 - Say when something is uncertain or the data is old.
 - For email, say who, roughly what about, and whether they're asking for something. Read the body only when asked.
 
-**Voice:** Kokoro `bm_george` (British male) by default, at speed 1.05. Settings let Kevin choose between 4 preset voices, preview them, and change the speed (0.9 to 1.3). The text sent to TTS is cleaned first: "@" in addresses is spoken, abbreviations are expanded (Tue → Tuesday), and stray symbols are removed.
+**Voice:** Kokoro `bm_george` (British male) by default, at speed 1.3. Settings let Kevin choose between 4 preset voices, preview them, and change the speed (0.9 to 1.3). The text sent to TTS is cleaned first: "@" in addresses is spoken, abbreviations are expanded (Tue → Tuesday), and stray symbols are removed.
 
 ## 10. The screen
 

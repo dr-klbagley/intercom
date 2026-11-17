@@ -85,7 +85,7 @@ describe('POST /api/turn', () => {
   it('says so out loud when Jarvis is unreachable', async () => {
     const { app } = setup({ error: "Can't reach Jarvis" });
     const res = await request(app).post('/api/turn?device=d1&conversation=c1').set(KEVIN).send({ text: 'Any emails?' });
-    expect(lines(res.text).at(-1)).toMatchObject({ type: 'error', spoken: "I can't reach Jarvis right now." });
+    expect(lines(res.text).at(-1)).toMatchObject({ type: 'error', spoken: 'My servers appear to be unreachable at the moment.' });
   });
 
   it('produces no audio when muted', async () => {

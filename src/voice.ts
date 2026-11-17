@@ -16,7 +16,7 @@ Optionally, after the spoken answer, add ONE card for the screen as a fenced blo
 \`\`\`
 The card is never read aloud.`;
 
-const ABBREVIATIONS = /\b(?:Mr|Mrs|Ms|Dr|St|Jr|Sr|vs|etc|e\.g|i\.e|Inc|Co|Corp|No)\.$/i;
+const ABBREVIATIONS = /\b(?:Mr|Mrs|Ms|Dr|St|Jr|Sr|vs|etc|e\.g|i\.e|Inc|Co|Corp|No|a\.m|p\.m)\.$/i;
 
 /** Splits off complete sentences; returns them plus the unfinished remainder. */
 export function splitSentences(buffer: string): { sentences: string[]; rest: string } {
@@ -43,6 +43,17 @@ const MONTHS: Record<string, string> = {
   Sep: 'September', Sept: 'September', Oct: 'October', Nov: 'November', Dec: 'December',
 };
 
+/**
+ * "3:30" -> "3 30", "3:00" -> "3 o'clock" (or just "3" before am/pm), "3:05" -> "3 oh 5".
+ * Kokoro pauses at a colon, so times are never sent with one.
+ */
+function speakTime(h: string, mm: string): string {
+  const hour = String(Number(h));
+  if (mm === '00') return `${hour} o'clock`;
+  if (mm.startsWith('0')) return `${hour} oh ${mm[1]}`;
+  return `${hour} ${mm}`;
+}
+
 /** Makes text safe and natural for TTS: no markdown, links, raw addresses or emoji. */
 export function cleanForSpeech(text: string): string {
   return text
@@ -53,6 +64,10 @@ export function cleanForSpeech(text: string): string {
     .replace(/\b(Mon|Tues?|Wed|Thu(?:rs?)?|Fri|Sat|Sun)\b\.?(?=[\s,]|$)/g, (m, d: string) => DAYS[d] ?? m)
     .replace(/\b(Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sept?|Oct|Nov|Dec)\b\.?(?=\s+\d)/g, (m, mo: string) => MONTHS[mo] ?? m)
     .replace(/(\d{1,2}:\d{2}):00\b/g, '$1')
+    .replace(/(\d{1,2}:\d{2}(?:\s?[ap]\.?m\.?)?)\s*[-–—]\s*(?=\d{1,2}:\d{2})/gi, '$1 to ')
+    .replace(/\b(\d{1,2}):(\d{2})(?!\d)/g, (_m, h: string, mm: string) => speakTime(h, mm))
+    .replace(/(\d) o'clock\s?([ap])(?:\.m\.|\.?m\b)/gi, (_m, d: string, x: string) => `${d} ${x.toUpperCase()}M`)
+    .replace(/(\d)\s?([ap])(?:\.m\.|\.?m\b)/gi, (_m, d: string, x: string) => `${d} ${x.toUpperCase()}M`)
     .replace(/&/g, ' and ')
     .replace(/[*_#`>|~]+/g, '')
     .replace(/^\s*[-•]\s+/gm, '')

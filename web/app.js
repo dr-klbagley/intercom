@@ -68,9 +68,11 @@
   let mode = 'idle'; // idle | listening | thinking | speaking
   const LABEL = { idle: 'Hold to talk', listening: 'Listening… release to send', thinking: 'Thinking…', speaking: 'Tap to interrupt' };
   function setMode(m) {
+    const was = mode;
     mode = m;
+    if (m === 'idle' && was === 'speaking') onSpeakingDone();
     talk.className = 'talk ' + (m === 'idle' ? '' : m);
-    stateEl.textContent = m === 'listening' && tapMode ? 'Listening… tap to send' : LABEL[m];
+    stateEl.textContent = m === 'listening' && tapMode ? 'Listening… tap to send' : m === 'idle' && wake.on ? 'Say “Hey Jarvis”' : LABEL[m];
   }
   function add(cls, text) {
     $('empty')?.remove();
@@ -104,6 +106,13 @@
     el.appendChild(ul);
     log.appendChild(el);
     log.scrollTop = log.scrollHeight;
+  }
+
+  // When Intercom itself can't be reached there is no server voice, so the browser says it.
+  const SERVERS_DOWN = 'My servers appear to be unreachable at the moment.';
+  function speakLocally(text) {
+    if (muted || !window.speechSynthesis) return;
+    try { const u = new SpeechSynthesisUtterance(text); u.lang = 'en-GB'; speechSynthesis.speak(u); } catch { /* no voice */ }
   }
 
   // ---------- one turn: upload, then read the NDJSON stream
@@ -146,7 +155,7 @@
           else if (ev.type === 'done' && bubble) {
             const meta = document.createElement('span'); meta.className = 'meta'; meta.textContent = `${(ev.ms / 1000).toFixed(1)}s`;
             if (audioIds.length) {
-              const r = document.createElement('button'); r.className = 'replay'; r.textContent = '↻ replay'; r.title = 'Play again';
+              const r = document.createElement('button'); r.className = 'replay'; r.innerHTML = '<svg class="ico"><use href="#i-replay"/></svg>Replay'; r.title = 'Play again';
               const ids = audioIds.slice();
               r.onclick = () => { stopSpeaking(); ids.forEach(enqueueAudio); };
               meta.appendChild(r);
@@ -156,7 +165,9 @@
         }
       }
     } catch (err) {
-      if (err.name !== 'AbortError') add('error', String(err.message || err));
+      if (err.name === 'AbortError') { /* replaced by a newer turn */ }
+      else if (err instanceof TypeError) { add('error', SERVERS_DOWN); speakLocally(SERVERS_DOWN); }
+      else add('error', String(err.message || err));
     } finally {
       if (inflight === abort) inflight = null;
       playChain.then(() => { if (mode === 'thinking') setMode('idle'); });
@@ -166,7 +177,7 @@
 
   // ---------- recording
   let micStream = null, recorder = null, chunks = [], tapMode = false, pressAt = 0, startedAt = 0;
-  let analyser = null, vadTimer = null, heardSpeech = false, quietSince = 0;
+  let analyser = null, micSource = null, vadTimer = null, heardSpeech = false, quietSince = 0;
   const MIME = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || '';
 
   async function ensureMic() {
@@ -174,12 +185,14 @@
     micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     analyser = audioCtx().createAnalyser();
     analyser.fftSize = 1024;
-    audioCtx().createMediaStreamSource(micStream).connect(analyser);
+    micSource = audioCtx().createMediaStreamSource(micStream);
+    micSource.connect(analyser);
+    if (wake.on) wakeAttach();
     return micStream;
   }
   function releaseMic() {
     micStream?.getTracks().forEach((t) => t.stop());
-    micStream = null; analyser = null;
+    micStream = null; analyser = null; micSource = null; wakeDetach();
   }
   function level() {
     if (!analyser) return 0;
@@ -209,8 +222,8 @@
       talk.style.setProperty('--level', String(1 + Math.min(l * 8, 0.35)));
       if (l > 0.02) { heardSpeech = true; quietSince = 0; } else if (!quietSince) quietSince = Date.now();
       const elapsed = Date.now() - startedAt;
-      // Tap mode ends itself ~1.2 s after you stop talking; any recording stops at 30 s.
-      if ((tapMode && heardSpeech && quietSince && Date.now() - quietSince > 1200) || elapsed > 30_000) finishListening(true);
+      // Tap mode ends itself 3 s after you stop talking; any recording stops at 30 s.
+      if ((tapMode && heardSpeech && quietSince && Date.now() - quietSince > 3000) || elapsed > 30_000) finishListening(true);
       if (tapMode && !heardSpeech && elapsed > 8000) finishListening(false);
     }, 60);
   }
@@ -274,7 +287,7 @@
     sendTurn(JSON.stringify({ text }), 'application/json');
   };
   const muteBtn = $('mute');
-  const showMute = () => { muteBtn.setAttribute('aria-pressed', String(muted)); muteBtn.textContent = muted ? '🔇' : '🔊'; };
+  const showMute = () => { muteBtn.setAttribute('aria-pressed', String(muted)); muteBtn.querySelector('use').setAttribute('href', muted ? '#i-muted' : '#i-volume'); muteBtn.title = muted ? 'Unmute spoken replies' : 'Mute spoken replies'; };
   muteBtn.onclick = () => { muted = !muted; store.set('intercom.muted', muted ? '1' : '0'); if (muted) stopSpeaking(); showMute(); };
   showMute();
   $('new').onclick = () => {
@@ -285,7 +298,98 @@
   // Free the mic when the page is hidden (iOS shows a mic indicator otherwise).
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { if (mode === 'listening') finishListening(false); releaseMic(); }
+    else if (wake.on) { ensureMic().catch(() => setWake(false)); keepAwake(); }
   });
+
+  // ---------- "Hey Jarvis" wake word (spec §5.2): detection runs here, on the device
+  const wake = { on: false, detector: null, node: null, sink: null, busy: false, cooldownUntil: 0, followUp: false, lock: null };
+  const wakeBtn = $('wake');
+  const WAKE_THRESHOLD = 0.5;
+  let workletReady = null;
+
+  async function loadDetector() {
+    if (wake.detector) return wake.detector.load();
+    if (!window.ort) await new Promise((ok, fail) => {
+      const s = document.createElement('script'); s.src = 'vendor/ort/ort.wasm.min.js'; s.onload = ok; s.onerror = () => fail(new Error('wake word engine didn\'t load'));
+      document.head.appendChild(s);
+    });
+    ort.env.wasm.wasmPaths = new URL('vendor/ort/', location.href).href;
+    ort.env.wasm.numThreads = 1;
+    wake.detector = new IntercomWake.WakeDetector(ort, async (name) => {
+      const r = await fetch(`models/${name}.onnx`);
+      if (!r.ok) throw new Error(`wake word model missing (${name})`);
+      return new Uint8Array(await r.arrayBuffer());
+    });
+    return wake.detector.load();
+  }
+  function wakeAttach() {
+    if (!micSource || wake.node || !workletReady) return;
+    workletReady.then(() => {
+      if (!micSource || wake.node) return;
+      const c = audioCtx();
+      wake.node = new AudioWorkletNode(c, 'intercom-down16k');
+      wake.sink = c.createGain(); wake.sink.gain.value = 0;
+      micSource.connect(wake.node); wake.node.connect(wake.sink).connect(c.destination);
+      wake.detector.reset();
+      wake.node.port.onmessage = (e) => onWakeAudio(e.data);
+    });
+  }
+  function wakeDetach() {
+    if (!wake.node) return;
+    wake.node.port.onmessage = null;
+    try { wake.node.disconnect(); wake.sink.disconnect(); } catch { /* already gone */ }
+    wake.node = null; wake.sink = null;
+  }
+  // Listen for the wake word only while idle or while he's talking (barge-in), never mid-question.
+  let wakeWasLive = false;
+  async function onWakeAudio(samples) {
+    const live = wake.on && (mode === 'idle' || mode === 'speaking') && Date.now() > wake.cooldownUntil;
+    if (!live) { wakeWasLive = false; return; }
+    if (!wakeWasLive) { wake.detector.reset(); wakeWasLive = true; }
+    if (wake.busy) return; // drop audio rather than fall behind
+    wake.busy = true;
+    try {
+      const score = await wake.detector.push(samples);
+      if (score !== null && score >= WAKE_THRESHOLD && wake.on && (mode === 'idle' || mode === 'speaking')) {
+        wake.cooldownUntil = Date.now() + 1500;
+        wakeWasLive = false;
+        tapMode = true;
+        startListening();
+      }
+    } catch (err) { console.warn('wake word', err); }
+    finally { wake.busy = false; }
+  }
+  // Follow-up window: after he finishes speaking, keep listening briefly without the wake word.
+  function onSpeakingDone() {
+    if (!wake.on || document.hidden) return;
+    setTimeout(() => { if (mode === 'idle' && wake.on) { tapMode = true; startListening(); } }, 250);
+  }
+  async function keepAwake() {
+    try { if (wake.on && navigator.wakeLock && !wake.lock) { wake.lock = await navigator.wakeLock.request('screen'); wake.lock.addEventListener('release', () => { wake.lock = null; }); } } catch { /* not allowed */ }
+  }
+  async function setWake(on) {
+    wake.on = on;
+    wakeBtn.setAttribute('aria-pressed', String(on));
+    if (!on) {
+      wakeDetach();
+      wake.lock?.release().catch(() => {}); wake.lock = null;
+      if (mode === 'idle') setMode('idle');
+      return;
+    }
+    wakeBtn.classList.add('loading');
+    try {
+      const c = audioCtx();
+      workletReady ??= c.audioWorklet.addModule(URL.createObjectURL(new Blob([IntercomWake.WORKLET], { type: 'text/javascript' })));
+      await Promise.all([workletReady, loadDetector(), ensureMic()]);
+      wakeAttach();
+      keepAwake();
+      if (mode === 'idle') setMode('idle');
+    } catch (err) {
+      wake.on = false; wakeBtn.setAttribute('aria-pressed', 'false');
+      add('error', 'Wake word unavailable: ' + (err.message || err));
+    } finally { wakeBtn.classList.remove('loading'); }
+  }
+  wakeBtn.onclick = () => setWake(!wake.on);
 
   // ---------- connection dot
   async function health() {

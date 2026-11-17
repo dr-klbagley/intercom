@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { createApp } from './app.js';
 import { loadConfig } from './config.js';
 import { ScriptGatherer } from './gather.js';
@@ -34,6 +35,7 @@ const app = createApp({
   allowedLogin: cfg.allowedLogin,
   devTrustLocal: cfg.devTrustLocal,
   webDir: cfg.webDir,
+  ortDir: path.join(path.dirname(cfg.webDir), 'node_modules/onnxruntime-web/dist'),
   health: async () => {
     const [sidecar, hermes] = await Promise.all([speech.healthy(), hermesReachable(hermesOpts)]);
     return { server: true, sidecar, hermes };

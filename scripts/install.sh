@@ -45,6 +45,15 @@ mkdir -p "$ROOT/logs" "$ROOT/models"
 step "Building the Intercom server"
 [ -n "$NODE" ] || die "node not found"
 (cd "$ROOT" && npm ci --silent && npm run build --silent && npx vitest run --silent >/dev/null) || die "build or tests failed"
+# "Hey Jarvis" wake word: openWakeWord's published models, run in the browser (spec §5.2).
+mkdir -p "$ROOT/web/models"
+OWW_URL=https://github.com/dscripka/openWakeWord/releases/download/v0.5.1
+for f in melspectrogram.onnx embedding_model.onnx hey_jarvis_v0.1.onnx; do
+  if [ ! -s "$ROOT/web/models/$f" ]; then
+    echo "  downloading $f (wake word)…"
+    curl -fsSL -o "$ROOT/web/models/$f.part" "$OWW_URL/$f" && mv "$ROOT/web/models/$f.part" "$ROOT/web/models/$f" || die "couldn't download $f"
+  fi
+done
 
 if [ $APP_ONLY = 0 ]; then
   # ---------------------------------------------------------------- 2. speech sidecar

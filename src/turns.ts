@@ -45,6 +45,9 @@ export class AudioStore {
   }
 }
 
+/** Spoken when Hermes can't be reached or doesn't answer. */
+export const HERMES_DOWN = 'My servers appear to be unreachable at the moment.';
+
 const STATUS: Record<Topic, string> = {
   mail: 'Checking your inbox.',
   calendar: 'Looking at your calendar.',
@@ -149,7 +152,7 @@ export class TurnRunner {
           for (const s of stream.push(ev.text)) emitSentence(s);
         } else if (ev.type === 'error') {
           await chain;
-          return fail(ev.message, 'I can\'t reach Jarvis right now.');
+          return fail(ev.message, HERMES_DOWN);
         } else if (ev.type === 'done') {
           break;
         }
