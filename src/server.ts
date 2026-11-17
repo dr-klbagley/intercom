@@ -18,6 +18,8 @@ const runner = new TurnRunner({
     scriptsDir: cfg.scriptsDir,
     python: cfg.gatherPython,
     digestScript: cfg.digestScript,
+    calendarScript: cfg.calendarScript,
+    log: (line) => console.log(new Date().toISOString(), line),
   }),
   audio,
   voice: cfg.voice,

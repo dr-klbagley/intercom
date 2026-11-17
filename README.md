@@ -26,6 +26,7 @@ Phone/Mac browser ─ tailscale serve /intercom ─► Intercom server (Node, 12
 ```
 
 - **Read-only by design.** Intercom gathers the context (the same scripts the 07:30 briefing uses) and Jarvis only answers from it. Jarvis's API server channel has no tools (his iMessage, cron and other channels keep theirs), so nothing said in an email or a question can make him act. It's Jarvis's own profile, so Intercom always gets the current Jarvis and voice chats share his history.
+- **Mail and Calendar access.** Intercom's service starts through `/usr/bin/osascript`, exactly like the Hermes gateway, so it uses the Full Disk Access and Calendar access already granted there; Node itself is granted nothing. The calendar comes from Jarvis's `Hermes Calendar Helper.app` via `scripts/calendar.sh` (which avoids `open -W`, flaky when the helper exits quickly).
 - **Private.** Tailnet only (never Funnel), and only Kevin's Tailscale login gets in. Audio stays on the Mac mini and is discarded after transcription. Logs hold timings only.
 
 ## Install

@@ -4,7 +4,11 @@
   Template for ~/Library/LaunchAgents/com.jarvis.intercom.plist. scripts/install.sh fills in the placeholders.
   A LaunchAgent (not a daemon) so it runs in jarvis's login session, like the Hermes gateway: the calendar
   helper app and Apple Mail's index both need that session. The installed copy holds the Hermes API key,
-  so it is mode 600. The server refuses to start while any placeholder is left.
+  so it is mode 600.
+
+  Started through /usr/bin/osascript, exactly like ai.hermes.gateway, so macOS attributes Intercom to
+  osascript and it uses the Full Disk Access (Mail's index) and Calendar access already granted there.
+  Node itself is NOT granted anything. Intercom only runs Jarvis's read-only gatherer scripts with it. The server refuses to start while any placeholder is left.
 -->
 <plist version="1.0">
 <dict>
@@ -12,8 +16,11 @@
   <string>com.jarvis.intercom</string>
   <key>ProgramArguments</key>
   <array>
-    <string>REPLACE_NODE</string>
-    <string>REPLACE_ROOT/dist/server.js</string>
+    <string>/usr/bin/osascript</string>
+    <string>-l</string>
+    <string>JavaScript</string>
+    <string>-e</string>
+    <string>ObjC.import("stdlib"); const status=$.system("exec REPLACE_NODE REPLACE_ROOT/dist/server.js >> REPLACE_ROOT/logs/intercom.log 2>&amp;1"); const signal=status &amp; 127; $.exit(status === -1 ? 1 : signal === 0 ? (status &gt;&gt; 8) &amp; 255 : 128 + signal);</string>
   </array>
   <key>WorkingDirectory</key>
   <string>REPLACE_ROOT</string>

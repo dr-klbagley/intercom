@@ -21,6 +21,7 @@ export interface Config {
   scriptsDir: string;
   gatherPython: string;
   digestScript: string;
+  calendarScript: string;
   webDir: string;
   voice: string;
   speed: number;
@@ -49,6 +50,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     scriptsDir: env.INTERCOM_SCRIPTS_DIR ?? path.join(HERMES_HOME, 'scripts'),
     gatherPython: env.INTERCOM_GATHER_PYTHON ?? path.join(HERMES_HOME, 'hermes-agent/venv/bin/python'),
     digestScript: path.join(root, 'scripts/latest_digest.py'),
+    calendarScript: path.join(root, 'scripts/calendar.sh'),
     webDir: env.INTERCOM_WEB_DIR ?? path.join(root, 'web'),
     voice: env.INTERCOM_VOICE ?? 'bm_george',
     speed: Number(env.INTERCOM_SPEED ?? 1.05),

@@ -21,6 +21,9 @@ interface Options {
   python: string;
   /** scripts/latest_digest.py in this repo. */
   digestScript: string;
+  /** scripts/calendar.sh in this repo (Jarvis's calendar helper without `open -W`). */
+  calendarScript: string;
+  log?: (line: string) => void;
   timeoutMs?: number;
   cacheMs?: number;
 }
@@ -91,9 +94,12 @@ export class ScriptGatherer implements Gatherer {
     try {
       const args = ['--days', String(days), '--no-sync'];
       try {
-        await fs.writeFile(calFile, await run(path.join(scriptsDir, 'kevin_calendar.sh'), [], timeout, scriptsDir), { mode: 0o600 });
+        await fs.writeFile(calFile, await run(this.opts.calendarScript, [], timeout, scriptsDir), { mode: 0o600 });
         args.unshift('--calendar', calFile);
-      } catch { /* briefing_gather reports CALENDAR UNAVAILABLE itself */ }
+      } catch (err) {
+        // briefing_gather reports CALENDAR UNAVAILABLE itself; record why the helper failed (error text only).
+        this.opts.log?.(`calendar helper: ${(err as Error).message.slice(0, 400)}`);
+      }
       return await run(python, [path.join(scriptsDir, 'briefing_gather.py'), ...args], timeout, scriptsDir);
     } finally {
       await fs.rm(dir, { recursive: true, force: true });

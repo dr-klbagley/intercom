@@ -6,7 +6,7 @@ import type { Topic } from '../src/topics.js';
 
 async function main() {
   const c = loadConfig({});
-  const g = new ScriptGatherer({ scriptsDir: c.scriptsDir, python: c.gatherPython, digestScript: c.digestScript });
+  const g = new ScriptGatherer({ scriptsDir: c.scriptsDir, python: c.gatherPython, digestScript: c.digestScript, calendarScript: c.calendarScript });
   const sets: Topic[][] = [['mail', 'calendar'], ['headlines'], ['briefing']];
   for (const t of sets) {
     const t0 = Date.now();

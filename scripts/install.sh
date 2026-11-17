@@ -171,4 +171,4 @@ if [ $APP_ONLY = 0 ]; then
 fi
 
 printf '\n\033[32m✓ Intercom is installed: https://%s/intercom/\033[0m\n' "$("$TS" status --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
-echo "If mail questions say mail is unavailable, give Full Disk Access to $NODE in System Settings → Privacy & Security."
+echo "Intercom starts through /usr/bin/osascript (like the Hermes gateway) and uses its Full Disk Access and Calendar access."
