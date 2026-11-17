@@ -34,7 +34,7 @@
       const src = audioCtx().createBufferSource();
       src.buffer = buf;
       src.connect(audioCtx().destination);
-      src.onended = () => { playing.delete(src); resolve(); if (!playing.size && mode === 'speaking') setMode('idle'); };
+      src.onended = () => { playing.delete(src); resolve(); if (!playing.size && mode === 'speaking') setMode(inflight ? 'thinking' : 'idle'); };
       playing.add(src);
       src.start();
       setMode('speaking');
@@ -170,7 +170,7 @@
       else add('error', String(err.message || err));
     } finally {
       if (inflight === abort) inflight = null;
-      playChain.then(() => { if (mode === 'thinking') setMode('idle'); });
+      playChain.then(() => { if (mode === 'thinking') { setMode('idle'); if (audioIds.length) onSpeakingDone(); } });
       if (mode === 'thinking' && !playing.size) setMode('idle');
     }
   }
@@ -360,9 +360,10 @@
     finally { wake.busy = false; }
   }
   // Follow-up window: after he finishes speaking, keep listening briefly without the wake word.
+  // Only once the whole answer is in and spoken: a status line ("Looking at your calendar") isn't the end.
   function onSpeakingDone() {
-    if (!wake.on || document.hidden) return;
-    setTimeout(() => { if (mode === 'idle' && wake.on) { tapMode = true; startListening(); } }, 250);
+    if (!wake.on || document.hidden || inflight) return;
+    setTimeout(() => { if (mode === 'idle' && wake.on && !inflight && !playing.size) { tapMode = true; startListening(); } }, 250);
   }
   async function keepAwake() {
     try { if (wake.on && navigator.wakeLock && !wake.lock) { wake.lock = await navigator.wakeLock.request('screen'); wake.lock.addEventListener('release', () => { wake.lock = null; }); } } catch { /* not allowed */ }
