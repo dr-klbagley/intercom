@@ -195,20 +195,55 @@ For when the page isn't open: lock screen, AirPods, CarPlay, Apple Watch.
 
 ## 14. Phase 2: actions with confirmation
 
-Phase 2 lets Jarvis act by voice, but only after Kevin confirms on screen.
+Phase 2 lets Jarvis act by voice, but only after Kevin confirms on screen. **Revised 2026-11-17** after Kevin chose the actions and a spike against Hermes.
 
-- **Still no tools in Hermes, and no second profile.** The API channel stays tool-less. Instead, Intercom passes Jarvis its own **proposal tools** in each request (the Responses API's `tools` field): `propose_email_reply`, `propose_email`, `propose_invite_response`, `propose_event`, `propose_todo`, `propose_text`. When Jarvis calls one, the call comes back to Intercom; Hermes never runs it. Jarvis decides *what* to do and fills in the details (recipient, exact text, event times); nothing happens yet.
-- **Every action is a proposal.** Intercom turns each proposal into a **pending action** with an ID and shows it. Jarvis's spoken reply says "I've drafted that, take a look."
-- **Confirmation card:** shows exactly what will happen, with **Confirm** and **Cancel** buttons. Kevin can also edit the draft text. Voice "yes" alone is **not** enough to confirm in phase 2: a tap is required, because a misheard "yes" from the TV or a passenger shouldn't send email.
-- **On Confirm,** Intercom carries out that exact pending action, unchanged, by ID:
-  - **By script where one exists** (preferred: predictable, does exactly what the card showed). Email goes through Jarvis's `kevin_mail_send.py`; other scripts are added per action type.
-  - **Otherwise through Jarvis's webhook channel** (`127.0.0.1:8644`, already on; Rivendell uses it to nudge Gandalf), where Jarvis has his normal tools: "Kevin confirmed this exact action: …; do exactly this and report the result." Signed like Rivendell's nudges.
-  - The result ("Sent to Brent at 10:42") is spoken and shown.
-- **Expiry:** pending actions expire after 10 minutes or when the conversation resets.
-- **Siri Shortcut:** actions aren't available there; it says "Open Intercom to confirm" and sends a link.
-- **Audit:** each confirmed action is logged to `Jarvis/` in the vault with time, device, transcript and result.
-- **Rules from Preferences still apply** (for example quiet hours, and OOO entries never counting as conflicts).
-- **Later, maybe:** a spoken confirmation code for hands-free use in the car, if tapping proves impractical there.
+### 14.1 Actions (Kevin's priorities)
+
+| Action | What Jarvis can propose | How Intercom carries it out on Confirm |
+|---|---|---|
+| **To-dos** | add (title, optional due date, notes, list), complete, change due date or title | Slotherium's MCP server (`127.0.0.1:4173/mcp`: `add_todo`, `complete_todo`, `update_todo`), called directly by Intercom. `source: "intercom"`. |
+| **Calendar invites** | accept, decline or tentative for one invite where Kevin is an attendee | **To decide (§14.5).** Apple's EventKit can read invites but cannot reply to them. |
+| **Simple email replies** | a short plain-text reply to one specific email | Apple Mail via AppleScript: `reply` to that exact message (found by its Mail id), sent from the account it arrived on. Reply to the sender only, unless Kevin says "reply all". |
+
+Not in phase 2: new emails to arbitrary people, texts, creating events. `kevin_mail_send.py` is not usable here: it only sends from Jarvis's iCloud to Kevin.
+
+### 14.2 How Jarvis proposes (spike result)
+
+- **Spike (2026-11-17):** Hermes's API server accepts a `tools` field in `/v1/responses`, but **does not pass client-defined tools to the model**; it reports only its own tool calls. So proposal *tools* are out.
+- **Instead, a hidden block,** exactly like cards: Jarvis ends his spoken answer with a fenced `intercom-action` JSON block, never spoken. Examples:
+  `{"kind":"todo.add","title":"Send Brent the Mississippi deck","due_date":"2026-11-20"}`,
+  `{"kind":"todo.complete","id":"…"}`,
+  `{"kind":"invite.respond","event_uid":"…","response":"accept"}`,
+  `{"kind":"email.reply","message_id":"…","body":"…","reply_all":false}`.
+- The Hermes channel stays tool-less, so nothing Jarvis says can act by itself. The voice instructions tell Jarvis the block format only when actions are on.
+- To make proposals possible, the read-only context gains what Jarvis needs to name things exactly: open to-dos with their ids (Slotherium `list_todos`), pending invites with their event ids and Kevin's response status, and Mail ids for the emails already listed.
+
+### 14.3 Confirmation
+
+- Intercom validates each block against a strict schema, then checks it against reality: the to-do id exists; the invite exists and Kevin is an attendee with a pending response; the email exists in Kevin's inbox, and the reply goes only to its sender (or, with reply-all, its existing recipients). A block that fails is dropped and logged, never shown.
+- A valid block becomes a **pending action** held on the server (ID, expiry, exact payload). The page shows a confirmation card with exactly what will happen: the to-do text and date, "Accept: ISM prep, Wed 3:00–3:30", or the email's recipient, subject and full reply text. Kevin can edit the text and date before confirming.
+- **Confirm requires a tap.** A spoken "yes" isn't enough, because a misheard "yes" from the TV or a passenger shouldn't send email. Jarvis says something like "It's ready for you to confirm, sir."
+- On Confirm, the page sends only the pending action's ID (plus Kevin's edits). Intercom runs it once (idempotent), then speaks and shows the result ("Added to your list, due Friday", "Accepted", "Sent to Brent at 10:42").
+- Pending actions expire after 10 minutes or when the conversation resets.
+- **Siri Shortcut:** no actions; it says "Open Intercom to confirm, sir."
+- **Audit:** each confirmed or failed action is appended to `Jarvis/Intercom actions.md` in the vault, with time, device, the spoken request, exactly what was done and the result.
+- **Switch:** everything in phase 2 is behind `INTERCOM_ACTIONS=1`. With it off, Intercom behaves exactly as in phase 1.
+
+### 14.4 Safety notes
+
+- Email content stays data: a proposal is only accepted from Jarvis's reply to a question Kevin just asked, and the confirmation card always shows the exact effect. Nothing ever runs without the tap.
+- The executor never takes recipients, ids or accounts from Jarvis that it hasn't checked against Mail, Calendar or Slotherium.
+- Kevin's Preferences ("Never do", "Writing and communication") are given to Jarvis when he drafts a reply; both are empty today.
+
+### 14.5 Open decision: how to answer invites
+
+Kevin's events come from two accounts, **Healthy Together** (kbagley@twenty.co) and **Bagley Strategies** (kevin@bagleystrategies.com). Options:
+
+1. **Google Calendar API** for each account (one-time sign-in per account). Updates the response everywhere, exactly as tapping Accept in Google Calendar does. **Recommended**, if both accounts are Google and twenty.co's admin allows it.
+2. **Reply to the invitation email** (an iCalendar REPLY sent from Apple Mail). Needs no sign-in and the organizer sees the answer, but Kevin's own copy of the event may still show "no response".
+3. **Clicking Accept in Calendar.app by UI automation.** Possible, but fragile; last resort.
+
+First step: confirm which service hosts each account, then pick.
 
 ## 15. Testing
 
@@ -231,19 +266,29 @@ Phase 2 lets Jarvis act by voice, but only after Kevin confirms on screen.
 6. Install, launchd, `tailscale serve`, healthz.
 
 **Phase 1b — faster and hands-free**
-7. Wake word in the browser, follow-up window, barge-in, wake lock.
-8. Status lines while Hermes works.
-9. Briefing cache.
-10. Cards.
-11. Siri Shortcut and `/api/ask`.
+7. ✅ Wake word in the browser, follow-up window, barge-in, wake lock (2026-11-17).
+8. ✅ Fillers while Jarvis works (revised twice on 2026-11-17, §6).
+9. ✅ Prefetch in place of the briefing cache (2026-11-17, §7).
+10. Read to-dos: Slotherium `list_todos` as a read-only topic ("what's on my list?"), with ids (needed for phase 2).
+11. Invites in the calendar context: Kevin's response status and the organizer for each event (additive fields in the calendar helper's output).
+12. Cards: check the email, agenda and headline cards on the phone and give them the brand look.
+13. Siri Shortcut: build it on `/api/ask`, check that Tailscale identity reaches it, and fall back to a per-device key if it doesn't.
 
 **Phase 1c — polish**
-12. Custom "Hey J" wake word.
-13. Voice and speed presets.
+14. Custom "Hey J" wake word (deferred by Kevin).
+15. Voice and speed presets.
 
-**Phase 2 — actions with confirmation (§14)**
+**Phase 2 — actions with confirmation (§14), behind `INTERCOM_ACTIONS=1`**
+16. `intercom-action` blocks: parsing, validation, pending-action store, confirmation card with edit, Confirm/Cancel, expiry, audit log.
+17. To-dos: add, complete, update via Slotherium.
+18. Email replies via Apple Mail.
+19. Invites, once §14.5 is decided.
+
+Phases 1b and 2 are planned together and can be built in one stretch, but released separately: 1b is read-only, and phase 2 goes live behind its switch so it can be turned off without affecting daily use.
 
 ## 17. Open questions
+
+0. **(New)** How to answer calendar invites (§14.5).
 
 1. How does Jarvis read Mail and Calendar today, and can it be done without `terminal`? (Blocks §8.)
 2. Should Intercom share a conversation with iMessage, so "what did I just ask you on my phone?" works? Proposed: no, separate sessions, but both are searchable by Jarvis.
