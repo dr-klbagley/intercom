@@ -30,7 +30,7 @@
     <key>INTERCOM_HERMES_KEY</key>
     <string>REPLACE_HERMES_KEY</string>
     <key>INTERCOM_HERMES_PROFILE</key>
-    <string>intercom</string>
+    <string>default</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

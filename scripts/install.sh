@@ -5,8 +5,9 @@
 #   scripts/install.sh --app-only # rebuild and restart Intercom only (after a git pull)
 #
 # What it changes outside this folder (each step says so as it runs):
-#   - Hermes: creates the `intercom` profile (a clone of Jarvis with NO tools on the API server),
-#     turns on the Hermes API server, and restarts the gateway (Jarvis is offline for a few seconds).
+#   - Hermes: gives Jarvis's API server channel NO tools (platform_toolsets.api_server: [] in his own
+#     config.yaml; his other channels keep theirs), turns on the API server, and restarts the gateway
+#     (Jarvis is offline for a few seconds).
 #   - ~/Library/LaunchAgents: com.jarvis.intercom and com.jarvis.intercom-sidecar.
 #   - tailscale serve: adds /intercom -> 127.0.0.1:4177 (tailnet only, never Funnel).
 # Backups of every Hermes file it edits go next to the original with a .bak-pre-intercom suffix.
@@ -19,8 +20,6 @@ UV="${UV:-$(command -v uv || echo "$HERMES_HOME/bin/uv")}"
 NODE="${NODE:-$(command -v node)}"
 TS=/Applications/Tailscale.app/Contents/MacOS/Tailscale
 AGENTS="$HOME/Library/LaunchAgents"
-PROFILE=intercom
-PROFILE_HOME="$HERMES_HOME/profiles/$PROFILE"
 API_PORT=8642
 APP_ONLY=0; [ "${1:-}" = "--app-only" ] && APP_ONLY=1
 
@@ -60,52 +59,57 @@ if [ $APP_ONLY = 0 ]; then
     fi
   done
 
-  # ---------------------------------------------------------------- 3. Hermes profile + API server
-  step "Hermes: creating the read-only '$PROFILE' profile"
-  if [ ! -d "$PROFILE_HOME" ]; then
-    "$HERMES" profile create "$PROFILE" --clone --description "Intercom voice answers: no tools, answers only from context Intercom gathers."
-  fi
-  CFG="$PROFILE_HOME/config.yaml"
+  # ---------------------------------------------------------------- 3. Hermes: no tools on the API channel, API server on
+  step "Hermes: no tools on Jarvis's API server channel"
+  CFG="$HERMES_HOME/config.yaml"
   [ -f "$CFG.bak-pre-intercom" ] || cp "$CFG" "$CFG.bak-pre-intercom"
-  # No tools on the API server for this profile (spec §8). Rewrites only the api_server line.
+  # Adds or rewrites only the api_server line INSIDE the top-level platform_toolsets block (spec §8).
+  # (gateway: also has an "  api_server:" settings block, which must not be touched.)
   python3 - "$CFG" <<'PY'
 import re, sys
-p = sys.argv[1]; s = open(p).read()
-if re.search(r"^platform_toolsets:", s, re.M):
-    if re.search(r"^  api_server:.*$", s, re.M):
-        s = re.sub(r"^  api_server:.*$", "  api_server: []", s, flags=re.M)
-    else:
-        s = re.sub(r"^platform_toolsets:\s*$", "platform_toolsets:\n  api_server: []", s, count=1, flags=re.M)
+p = sys.argv[1]; lines = open(p).read().split("\n")
+start = next((i for i, l in enumerate(lines) if re.match(r"platform_toolsets:\s*$", l)), None)
+if start is None:
+    sys.exit("platform_toolsets: not found in " + p)
+end = next((i for i in range(start + 1, len(lines)) if lines[i] and not lines[i].startswith((" ", "#"))), len(lines))
+hit = next((i for i in range(start + 1, end) if re.match(r"  api_server:", lines[i])), None)
+if hit is None:
+    lines.insert(start + 1, "  api_server: []")
 else:
-    s = s.rstrip("\n") + "\nplatform_toolsets:\n  api_server: []\n"
-open(p, "w").write(s)
+    lines[hit] = "  api_server: []"
+open(p, "w").write("\n".join(lines))
+PY
+  "$HERMES_HOME/hermes-agent/venv/bin/python" - "$CFG" <<'PY' || die "couldn't set platform_toolsets.api_server: [] in $CFG"
+import sys, yaml
+c = yaml.safe_load(open(sys.argv[1]))
+assert c["platform_toolsets"]["api_server"] == [], "api_server toolsets not empty"
+assert isinstance(c["gateway"]["api_server"], dict), "gateway.api_server settings were changed"
 PY
 
   step "Hermes: turning on the API server (127.0.0.1:$API_PORT)"
-  ROOT_ENV="$HERMES_HOME/.env"; PROF_ENV="$PROFILE_HOME/.env"
+  ROOT_ENV="$HERMES_HOME/.env"
   [ -f "$ROOT_ENV.bak-pre-intercom" ] || cp "$ROOT_ENV" "$ROOT_ENV.bak-pre-intercom" 2>/dev/null || true
   [ "$(get_env "$ROOT_ENV" API_SERVER_ENABLED)" = "true" ] || set_env "$ROOT_ENV" API_SERVER_ENABLED true
-  [ -n "$(get_env "$ROOT_ENV" API_SERVER_KEY)" ] || set_env "$ROOT_ENV" API_SERVER_KEY "$(openssl rand -hex 32)"
-  KEY="$(get_env "$PROF_ENV" API_SERVER_KEY)"
-  if [ -z "$KEY" ]; then KEY="$(openssl rand -hex 32)"; set_env "$PROF_ENV" API_SERVER_KEY "$KEY"; fi
+  KEY="$(get_env "$ROOT_ENV" API_SERVER_KEY)"
+  if [ -z "$KEY" ]; then KEY="$(openssl rand -hex 32)"; set_env "$ROOT_ENV" API_SERVER_KEY "$KEY"; fi
 
   step "Hermes: restarting the gateway (Jarvis is offline for a few seconds)"
   launchctl kickstart -k "gui/$(id -u)/ai.hermes.gateway"
   for _ in $(seq 1 60); do
-    curl -fsS -H "Authorization: Bearer $KEY" "http://127.0.0.1:$API_PORT/p/$PROFILE/v1/models" >/dev/null 2>&1 && break
+    curl -fsS -H "Authorization: Bearer $KEY" "http://127.0.0.1:$API_PORT/v1/models" >/dev/null 2>&1 && break
     sleep 2
   done
-  curl -fsS -H "Authorization: Bearer $KEY" "http://127.0.0.1:$API_PORT/p/$PROFILE/v1/models" >/dev/null || die "Hermes API isn't answering for profile $PROFILE"
+  curl -fsS -H "Authorization: Bearer $KEY" "http://127.0.0.1:$API_PORT/v1/models" >/dev/null || die "Hermes API isn't answering"
 
-  step "Hermes: confirming the '$PROFILE' profile has no tools"
-  TOOLS="$(curl -fsS -H "Authorization: Bearer $KEY" "http://127.0.0.1:$API_PORT/p/$PROFILE/v1/toolsets")"
+  step "Hermes: confirming the API channel has no tools"
+  TOOLS="$(curl -fsS -H "Authorization: Bearer $KEY" "http://127.0.0.1:$API_PORT/v1/toolsets")"
   COUNT="$(printf '%s' "$TOOLS" | python3 -c 'import json,sys
 d=json.load(sys.stdin); ts=d.get("toolsets", d.get("data", d)) if isinstance(d, dict) else d
 print(sum(len(t.get("tools", [])) for t in ts) if isinstance(ts, list) else -1)')"
-  [ "$COUNT" = "0" ] || die "profile $PROFILE still has tools ($COUNT); not installing. Response: $(printf '%s' "$TOOLS" | head -c 400)"
+  [ "$COUNT" = "0" ] || die "the API channel still has tools ($COUNT); not installing. Restore with: cp $CFG.bak-pre-intercom $CFG. Response: $(printf '%s' "$TOOLS" | head -c 400)"
 else
-  KEY="$(get_env "$PROFILE_HOME/.env" API_SERVER_KEY)"
-  [ -n "$KEY" ] || die "no API key for profile $PROFILE; run the full install first"
+  KEY="$(get_env "$HERMES_HOME/.env" API_SERVER_KEY)"
+  [ -n "$KEY" ] || die "no Hermes API key; run the full install first"
 fi
 
 # ------------------------------------------------------------------ 4. launchd

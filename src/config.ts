@@ -43,7 +43,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     devTrustLocal,
     hermesUrl: env.INTERCOM_HERMES_URL ?? 'http://127.0.0.1:8642',
     hermesKey: required('INTERCOM_HERMES_KEY'),
-    hermesProfile: env.INTERCOM_HERMES_PROFILE ?? 'intercom',
+    hermesProfile: env.INTERCOM_HERMES_PROFILE ?? 'default',
     hermesTimeoutMs: Number(env.INTERCOM_HERMES_TIMEOUT_MS ?? 60_000),
     sidecarUrl: env.INTERCOM_SIDECAR_URL ?? 'http://127.0.0.1:4178',
     scriptsDir: env.INTERCOM_SCRIPTS_DIR ?? path.join(HERMES_HOME, 'scripts'),

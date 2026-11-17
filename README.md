@@ -22,10 +22,10 @@ Not yet: the "Hey Jarvis" wake word, the briefing cache, the status line while h
 Phone/Mac browser ─ tailscale serve /intercom ─► Intercom server (Node, 127.0.0.1:4177)
                                                    ├─ speech sidecar (Python, 127.0.0.1:4178): Whisper in, Kokoro out
                                                    ├─ read-only gatherers: Jarvis's own Mail/Calendar scripts, digest emails
-                                                   └─ Hermes API (127.0.0.1:8642), profile `intercom`, which has no tools
+                                                   └─ Hermes API (127.0.0.1:8642): Jarvis himself, no tools on this channel
 ```
 
-- **Read-only by design.** Intercom gathers the context (the same scripts the 07:30 briefing uses) and Jarvis only answers from it. The `intercom` Hermes profile has no tools on the API server, so nothing said in an email or a question can make it act.
+- **Read-only by design.** Intercom gathers the context (the same scripts the 07:30 briefing uses) and Jarvis only answers from it. Jarvis's API server channel has no tools (his iMessage, cron and other channels keep theirs), so nothing said in an email or a question can make him act. It's Jarvis's own profile, so Intercom always gets the current Jarvis and voice chats share his history.
 - **Private.** Tailnet only (never Funnel), and only Kevin's Tailscale login gets in. Audio stays on the Mac mini and is discarded after transcription. Logs hold timings only.
 
 ## Install
@@ -34,7 +34,7 @@ As `jarvis`, from this folder:
 
     scripts/install.sh
 
-It builds the app, sets up the speech models (about 2 GB on first run), creates the `intercom` Hermes profile and turns on the Hermes API server, **restarts the Hermes gateway** (Jarvis is offline for a few seconds), installs two launch agents, and adds `/intercom` to `tailscale serve`. It stops if the `intercom` profile turns out to have any tools.
+It builds the app, sets up the speech models (about 2 GB on first run), sets Jarvis's API server channel to no tools and turns that server on (backing up his config first), **restarts the Hermes gateway** (Jarvis is offline for a few seconds), installs two launch agents, and adds `/intercom` to `tailscale serve`. It stops if the API channel turns out to have any tools.
 
 After a `git pull`: `scripts/install.sh --app-only`.
 

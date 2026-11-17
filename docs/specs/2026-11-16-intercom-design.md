@@ -2,7 +2,7 @@
 
 Date: 2026-11-16
 Status: Draft for Kevin's review
-Name: **Intercom** (the app). Answers come from **Jarvis** (the Hermes `default` profile) through a read-only Hermes profile, `intercom`.
+Name: **Intercom** (the app). Answers come from **Jarvis** himself (the Hermes `default` profile), through his API server, which has no tools (§8).
 
 ## 1. Goal
 
@@ -51,7 +51,7 @@ Intercom server  — Node 24 + TypeScript, 127.0.0.1:4177   (/intercom)
   ├─► voice sidecar — Python, 127.0.0.1:4178 (loopback only)
   │     ├─ /stt  mlx-whisper (large-v3-turbo) on Metal
   │     └─ /tts  Kokoro (kokoro-onnx), sentence-at-a-time
-  └─► Hermes API — 127.0.0.1:8642, profile `intercom` (no tools, §8)
+  └─► Hermes API — 127.0.0.1:8642, Jarvis's default profile (no tools on this channel, §8)
 ```
 
 Why there's a sidecar: the best speech models for Apple Silicon (MLX Whisper, Kokoro) are Python. The Node server stays like its siblings, and the sidecar exposes two loopback endpoints with no auth beyond loopback-only binding.
@@ -85,7 +85,7 @@ Both run as launchd agents under `jarvis`, installed by `install.sh` like Mind S
 2. **Transcribe:** the server sends the audio to the sidecar's `/stt`. `mlx-whisper large-v3-turbo` takes about 0.3 to 0.8 s for a short request on the M6. A **name hint** is passed as the initial prompt: the names and companies from the Preferences VIP list (Brent Layton, Zane Yates, Jared Allgood, Bagley Strategies, Healthy Together…), so they're spelled right. Empty or near-silent audio ends the turn with "Didn't catch that" and no Hermes call.
 3. **Show the transcript** immediately, so Kevin can see what was heard and cancel if it's wrong.
 4. **Fast path (§7):** if the transcript matches a briefing intent and the cached answer is fresh, answer from the cache.
-5. **Ask Jarvis:** `POST /v1/responses` with `stream: true`, profile `intercom`, `X-Hermes-Session-Key: intercom-<device>-<conversation>`, and the voice instructions (§9) plus the transcript as `input`.
+5. **Ask Jarvis:** `POST /v1/responses` with `stream: true` to Jarvis's default profile, `X-Hermes-Session-Key: intercom-<device>-<conversation>`, and the voice instructions (§9) plus the transcript as `input`.
 6. **Say what he's doing:** while Hermes streams tool-progress events, Intercom speaks at most one short status line, once, after 2.5 s, chosen from the tool being used: "Checking your inbox…", "Looking at your calendar…", "Pulling up the headlines…". If the answer arrives first, nothing is said.
 7. **Speak:** as answer text streams in, it's split into sentences, and each one goes to `/tts` and is played as soon as it's ready. Kokoro produces a sentence in about 0.1 to 0.3 s on the M6, so speech starts within about half a second of the first sentence.
 8. **Show:** the reply text appears as he speaks, plus any card (§10).
@@ -123,7 +123,8 @@ Read-only is enforced by design: **Intercom gathers, Jarvis only answers.** This
 **Design:**
 - **Intercom picks a topic** for each question (mail, calendar, headlines, briefing, general) and runs the matching **read-only gatherer** on the Mac mini: `kevin_calendar.sh` and `briefing_gather.py --calendar … --days N --no-sync` for mail and calendar, and the latest output of the headlines job for news.
 - **The gathered text goes into the Hermes request** as context, marked as untrusted data, alongside the voice instructions and the question.
-- **The `intercom` Hermes profile has no tools** (`platform_toolsets.api_server: []`). Whatever an email says, it has nothing to act with.
+- **Jarvis's API server channel has no tools** (`platform_toolsets.api_server: []` in Jarvis's own `config.yaml`). Whatever an email says, there's nothing to act with. His other channels (iMessage, cron, CLI) keep their tools.
+- **Why Jarvis's own profile, not a separate one (decided 2026-11-16):** a cloned profile copies Jarvis's personality, memory and skills once and then drifts apart; using his own profile means Intercom always gets the current Jarvis, and voice conversations sit in the same searchable history as iMessage. Nothing else uses Jarvis's API server today, so nothing loses tools. If another API client ever needs tools, it gets its own profile then.
 - **Every request** also carries: "This is a read-only voice session. If Kevin asks you to send, reply, schedule, change or delete anything, say you can't do that by voice yet and suggest he ask in iMessage."
 - **Trade-off:** questions outside the gathered topics ("what did Brent say about pricing last month?") only get what's in the context. Phase 1 answers "I can't look that up by voice yet." Wider read-only search is a phase 1c item.
 - **Permissions:** Intercom's launchd job runs the gatherers as `jarvis`. Reading Mail's index needs Full Disk Access for the Node binary that runs Intercom. Kevin grants it once in System Settings (Intercom can't grant it itself). The calendar helper already has Calendar access.
@@ -162,7 +163,7 @@ For when the page isn't open: lock screen, AirPods, CarPlay, Apple Watch.
 - The Shortcut: *Dictate Text* → *Get Contents of URL* (POST) → *Speak Text*, using Siri's voice. It works over the tailnet because the phone is on Tailscale.
 - The shortcut is installed from a link on Intercom's settings page.
 - **Auth:** Tailscale identity, same as the page. Shortcut requests get the same headers through `tailscale serve`. **To verify:** if they don't, fall back to a per-device token stored in the Shortcut.
-- Same read-only profile, voice instructions and briefing cache. A Shortcut conversation continues for 5 minutes, so "and Thursday?" works as a second ask.
+- Same no-tools channel, voice instructions and briefing cache. A Shortcut conversation continues for 5 minutes, so "and Thursday?" works as a second ask.
 
 ## 12. Privacy and security
 
@@ -171,7 +172,7 @@ For when the page isn't open: lock screen, AirPods, CarPlay, Apple Watch.
 - **Keys:** `API_SERVER_KEY` is stored only in Intercom's launchd plist (mode 600) and `~/.hermes/.env`. It never reaches the browser.
 - **Audio:** kept in memory, never written to disk, and dropped when the turn ends. All speech processing is local.
 - **Transcripts:** stored in Hermes sessions like any conversation, so they're searchable by Jarvis. Intercom keeps only the last 50 turns per device, for the on-screen history.
-- **Untrusted content:** email bodies and headlines are data. The `intercom` profile has no tools to act on what they say, and phase 2 confirmation (§14) covers that case later.
+- **Untrusted content:** email bodies and headlines are data. Jarvis's API channel has no tools to act on what they say, and phase 2 confirmation (§14) covers that case later.
 - **Logs:** turn IDs, timing and errors only. No transcripts or audio.
 
 ## 13. Install and operations
@@ -180,7 +181,7 @@ For when the page isn't open: lock screen, AirPods, CarPlay, Apple Watch.
 - **`install.sh`:**
   1. Checks ports 4177 and 4178 are free.
   2. Creates the sidecar's environment and downloads the models (whisper large-v3-turbo about 1.6 GB, Kokoro about 330 MB, `hey_jarvis` and Silero VAD a few MB each, served to the browser from `web/models/`).
-  3. Creates the `intercom` Hermes profile with the read-only toolset (§8).
+  3. Sets `platform_toolsets.api_server: []` in Jarvis's `config.yaml` (backed up first) and confirms through `GET /v1/toolsets` that the API channel has no tools; stops otherwise (§8).
   4. Turns on the Hermes API server if it's off (backs up `.env` first) and restarts the gateway.
   5. Writes both launchd plists and loads them.
   6. Adds `/intercom` to `tailscale serve`.
@@ -193,10 +194,13 @@ For when the page isn't open: lock screen, AirPods, CarPlay, Apple Watch.
 
 Phase 2 lets Jarvis act by voice, but only after Kevin confirms on screen.
 
-- **Second profile, `intercom-act`,** with the action skills: reply/send email, draft, accept/decline invite, create/move event, add to-do, text through BlueBubbles.
-- **Every action is a proposal.** The action skills in this profile don't act directly: they return a structured **pending action** (what, to whom, the exact text or event) to Intercom. Hermes's reply says "I've drafted that, take a look."
+- **Still no tools in Hermes, and no second profile.** The API channel stays tool-less. Instead, Intercom passes Jarvis its own **proposal tools** in each request (the Responses API's `tools` field): `propose_email_reply`, `propose_email`, `propose_invite_response`, `propose_event`, `propose_todo`, `propose_text`. When Jarvis calls one, the call comes back to Intercom; Hermes never runs it. Jarvis decides *what* to do and fills in the details (recipient, exact text, event times); nothing happens yet.
+- **Every action is a proposal.** Intercom turns each proposal into a **pending action** with an ID and shows it. Jarvis's spoken reply says "I've drafted that, take a look."
 - **Confirmation card:** shows exactly what will happen, with **Confirm** and **Cancel** buttons. Kevin can also edit the draft text. Voice "yes" alone is **not** enough to confirm in phase 2: a tap is required, because a misheard "yes" from the TV or a passenger shouldn't send email.
-- **On Confirm,** Intercom calls Hermes to carry out that exact pending action, unchanged, by ID. The result ("Sent to Brent at 10:42") is spoken and shown.
+- **On Confirm,** Intercom carries out that exact pending action, unchanged, by ID:
+  - **By script where one exists** (preferred: predictable, does exactly what the card showed). Email goes through Jarvis's `kevin_mail_send.py`; other scripts are added per action type.
+  - **Otherwise through Jarvis's webhook channel** (`127.0.0.1:8644`, already on; Rivendell uses it to nudge Gandalf), where Jarvis has his normal tools: "Kevin confirmed this exact action: …; do exactly this and report the result." Signed like Rivendell's nudges.
+  - The result ("Sent to Brent at 10:42") is spoken and shown.
 - **Expiry:** pending actions expire after 10 minutes or when the conversation resets.
 - **Siri Shortcut:** actions aren't available there; it says "Open Intercom to confirm" and sends a link.
 - **Audit:** each confirmed action is logged to `Jarvis/` in the vault with time, device, transcript and result.
@@ -208,7 +212,7 @@ Phase 2 lets Jarvis act by voice, but only after Kevin confirms on screen.
 - **Unit (vitest):** intent matching for the briefing cache, sentence splitting, TTS text cleanup, card parsing, session key handling, auth.
 - **API (supertest):** every route against a stub Hermes and a stub sidecar, including streaming, timeouts, retry with the same turn ID, and 403 without identity.
 - **Sidecar (pytest):** STT accuracy on 20 recorded clips of Kevin's real questions, with VIP names, against a word error rate target; TTS output for numbers, times, emails and abbreviations.
-- **Read-only proof:** 30 scripted requests to send, reply, accept, delete, schedule or remind, run against the real `intercom` profile with a dry-run mail and calendar. Pass means zero side effects and a spoken "can't do that by voice yet."
+- **Read-only proof:** 30 scripted requests to send, reply, accept, delete, schedule or remind, run against Jarvis's API channel with a dry-run mail and calendar. Pass means zero side effects and a spoken "can't do that by voice yet."
 - **Wake word:** false-trigger count over 1 hour of TV and conversation (target under 1 per hour on Normal); detection rate on 50 real "Hey Jarvis" attempts at 1 m and 3 m (target 90% or more on Normal).
 - **Devices:** iPhone Safari (installed and in the browser), MacBook Safari and Chrome, AirPods mic, the Shortcut on a locked phone.
 - **Latency log** per turn so the targets in §6 can be checked with real use.
@@ -217,7 +221,7 @@ Phase 2 lets Jarvis act by voice, but only after Kevin confirms on screen.
 
 **Phase 1a — talk and listen (push-to-talk)**
 1. Confirm how Jarvis reads Mail and Calendar, and settle the read-only toolset (§8).
-2. Turn on the Hermes API server. Create the `intercom` profile.
+2. Turn on the Hermes API server with no tools on that channel.
 3. Voice sidecar: STT and TTS.
 4. Intercom server: auth, `/api/turn`, streaming, sentence TTS, sessions.
 5. PWA: push-to-talk, conversation, text input, mute, settings.
