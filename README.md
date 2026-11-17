@@ -11,13 +11,15 @@ Design: [docs/specs/2026-11-16-intercom-design.md](docs/specs/2026-11-16-interco
 - **Push-to-talk:** hold the button (or the space bar on a Mac) and release to send. A quick tap starts listening, and it sends by itself 3 seconds after you stop talking.
 - **"Hey Jarvis" wake word:** turn on the "Hey Jarvis" pill in the header. Detection runs on the phone or Mac itself (openWakeWord's published model in onnxruntime-web), so no audio leaves the device until it hears the wake word. After he answers, the mic stays open briefly for a follow-up, and saying "Hey Jarvis" while he's talking interrupts him. It only works while the page is open and the screen is on (it keeps the screen awake). "Hey J" needs a custom-trained model and isn't in yet.
 - **Mail and calendar questions** ("any emails from tier 1 today?", "what's on tomorrow?"), **headlines** and **the morning briefing**.
-- **Follow-ups** keep the thread ("and Thursday?").
+- **Follow-ups** keep the thread ("and Thursday?"). Replies and sign-offs ("let's go with the demo", "no, thanks") look nothing up; Jarvis answers from the conversation in a second or two.
+- **Prefetch:** mail, calendar and the two digests are refreshed in the background every 5 minutes from 6 am to 11 pm, so most questions skip the 3-second fetch. "Check again" or "anything new?" always fetches live.
+- **Fillers:** only when he really has to fetch something and nothing's been said for 4 seconds, a short varied line ("One sec.", "Let me look.").
 - **Spoken replies** sentence by sentence, with the text and cards (emails, agenda, headlines) on screen. Mute, replay, typed questions and new conversation.
 - **Siri Shortcut endpoint** (`POST api/ask`); the Shortcut itself comes in phase 1b.
 
 If Hermes is down he says "My servers appear to be unreachable at the moment." (the browser says it itself if Intercom can't be reached at all). Times are spoken without the colon ("3 30"), which Kokoro otherwise pauses on.
 
-Not yet: "Hey J", the briefing cache, the status line while he works on longer answers, and actions (phase 2). See the spec's build order (§16).
+Not yet: "Hey J", condensed briefing answers, the Siri Shortcut itself, and actions (phase 2). See the spec's build order (§16).
 
 ## How it works
 

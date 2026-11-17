@@ -87,7 +87,7 @@ Both run as launchd agents under `jarvis`, installed by `install.sh` like Mind S
 3. **Show the transcript** immediately, so Kevin can see what was heard and cancel if it's wrong.
 4. **Fast path (§7):** if the transcript matches a briefing intent and the cached answer is fresh, answer from the cache.
 5. **Ask Jarvis:** `POST /v1/responses` with `stream: true` to Jarvis's default profile, `X-Hermes-Session-Key: intercom-<device>-<conversation>`, and the voice instructions (§9) plus the transcript as `input`.
-6. **Say what he's doing:** while Hermes streams tool-progress events, Intercom speaks at most one short status line, once, after 2.5 s, chosen from the tool being used: "Checking your inbox…", "Looking at your calendar…", "Pulling up the headlines…". If the answer arrives first, nothing is said.
+6. **(Changed 2026-11-17: Kevin found task-specific status lines unnatural. Now a short varied filler — "One sec.", "Let me look." — after 4 s, only when the turn has to fetch live data; never for cached answers or replies.)** Originally: **Say what he's doing:** while Hermes streams tool-progress events, Intercom speaks at most one short status line, once, after 2.5 s, chosen from the tool being used: "Checking your inbox…", "Looking at your calendar…", "Pulling up the headlines…". If the answer arrives first, nothing is said.
 7. **Speak:** as answer text streams in, it's split into sentences, and each one goes to `/tts` and is played as soon as it's ready. Kokoro produces a sentence in about 0.1 to 0.3 s on the M6, so speech starts within about half a second of the first sentence.
 8. **Show:** the reply text appears as he speaks, plus any card (§10).
 
@@ -110,6 +110,8 @@ Three intents get near-instant answers from what Jarvis has already prepared:
 - Calendar questions ("tomorrow", "Thursday") always go to Hermes, because calendars change.
 - Briefing outputs are condensed for speech by Hermes once, when each job finishes, through an Intercom webhook. They aren't condensed at question time.
 - **Confirmed 2026-11-16:** the jobs' own output (`~/.hermes/cron/output/<id>/`) holds only a delivery note, so Intercom reads the emails themselves from Apple Mail (`scripts/latest_digest.py`, read-only, newest from Jarvis's address in the last 2 days).
+- **Built (2026-11-17): prefetch.** Instead of condensing briefings via a webhook, Intercom keeps the live gatherers warm: mail and calendar (2 days of mail, one set serving mail, calendar and mixed questions) and both digests are refreshed every 5 minutes from 06:00 to 23:00 (`INTERCOM_PREFETCH_MINUTES`, `_FROM`, `_UNTIL`) and reused for up to 6 minutes. "Check again", "anything new" and similar always fetch live. Data older than a minute is labelled with its fetch time in the context. Calendar questions use the prefetched calendar too, since it is at most 5 minutes old.
+- **Built (2026-11-17): replies.** Replies and sign-offs ("thanks", "no thanks", "let's have the demo take priority") look nothing up; a follow-up reuses the last topic only when it is question-shaped. Jarvis acknowledges stated decisions briefly instead of explaining voice limits.
 - **Still open:** whether the triage log has enough for "tier 1 today" (it's in "log only" trial mode). Until then, tier 1 questions use the live mail gatherer, which already marks each email's triage level.
 
 ## 8. Read-only enforcement (phase 1)

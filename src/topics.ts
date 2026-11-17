@@ -18,3 +18,19 @@ export function classify(question: string): Set<Topic> {
   }
   return topics;
 }
+
+const ASKS = /\?|\b(what|what's|whats|when|where|who|whose|how|which|any|anything|is there|are there|do i|did|does|tell me|check|read|give me|show me|look up|find|the rest|more)\b/i;
+const REPLY_START = /^\s*(thanks|thank you|thx|no|nope|nah|okay|ok|got it|great|perfect|sounds good|good|cool|alright|all right|yes|yeah|yep|sure|fine|never ?mind|that's (all|it|everything|fine|good)|let's|lets|go with|we'll|i'll|i will|i've got|bye|goodbye|cheers)\b/i;
+
+/**
+ * Replies and sign-offs ("thanks", "no thanks", "let's have the demo take priority"). These need no
+ * lookup: Jarvis answers from the conversation, which already holds what was gathered.
+ */
+export function isReply(question: string): boolean {
+  return REPLY_START.test(question) && !ASKS.test(question);
+}
+
+/** A question-shaped follow-up ("and Thursday?", "what about after lunch?") that can reuse the last topic. */
+export function isQuestion(question: string): boolean {
+  return ASKS.test(question);
+}

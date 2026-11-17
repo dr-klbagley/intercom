@@ -10,10 +10,24 @@ import type { Topic } from './topics.js';
 export interface GatherResult {
   context: string;
   sources: string[];
+  /** True if anything had to be fetched now (no fresh copy in the cache). */
+  live: boolean;
+}
+
+export interface GatherOptions {
+  /** Skip the cache ("check again", "anything new"). */
+  fresh?: boolean;
 }
 
 export interface Gatherer {
-  gather(topics: Set<Topic>, question: string): Promise<GatherResult>;
+  gather(topics: Set<Topic>, question: string, opts?: GatherOptions): Promise<GatherResult>;
+  /** Whether gather() would answer from the cache without fetching anything. */
+  isWarm?(topics: Set<Topic>, question: string, opts?: GatherOptions): boolean;
+}
+
+/** Questions that want the latest data rather than what was fetched a few minutes ago. */
+export function wantsFresh(question: string): boolean {
+  return /(again|refresh|re-?check|just now|right now|latest|anything new|any new|newest|since)/i.test(question);
 }
 
 interface Options {
@@ -25,8 +39,14 @@ interface Options {
   calendarScript: string;
   log?: (line: string) => void;
   timeoutMs?: number;
+  /** How long a fetched part is reused (default 6 min; the prefetch refreshes every 5). */
   cacheMs?: number;
 }
+
+type Part = 'mc2' | 'mc7' | 'headlines' | 'briefing';
+const HEADLINES = 'Medicaid & Health Insurance Headlines — ';
+const BRIEFING = 'Daily briefing — ';
+const clock = (d: Date) => d.toLocaleTimeString('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit' });
 
 function run(cmd: string, args: string[], timeoutMs: number, cwd: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -43,42 +63,77 @@ function run(cmd: string, args: string[], timeoutMs: number, cwd: string): Promi
 }
 
 export class ScriptGatherer implements Gatherer {
-  private cache = new Map<string, { at: number; value: GatherResult }>();
+  private cache = new Map<Part, { at: number; text: string }>();
+  private inflight = new Map<Part, Promise<string>>();
 
   constructor(private opts: Options) {}
 
-  async gather(topics: Set<Topic>, question: string): Promise<GatherResult> {
-    const days = /\b(week|7 days|seven days)\b/i.test(question) ? 7 : 2;
-    const key = `${[...topics].sort().join(',')}|${days}`;
-    const hit = this.cache.get(key);
-    if (hit && Date.now() - hit.at < (this.opts.cacheMs ?? 60_000)) return hit.value;
+  private parts(topics: Set<Topic>, question: string): Part[] {
+    const parts: Part[] = [];
+    // One mail+calendar set (2 days of mail) serves mail, calendar and mixed questions; "this week" needs 7.
+    if (topics.has('mail') || topics.has('calendar')) parts.push(/\b(week|7 days|seven days)\b/i.test(question) ? 'mc7' : 'mc2');
+    if (topics.has('headlines')) parts.push('headlines');
+    if (topics.has('briefing')) parts.push('briefing');
+    return parts;
+  }
 
-    const parts: string[] = [`Now: ${new Date().toLocaleString('en-US', { timeZone: 'America/Chicago', dateStyle: 'full', timeStyle: 'short' })} (America/Chicago)`];
+  private cached(part: Part): { at: number; text: string } | undefined {
+    const hit = this.cache.get(part);
+    return hit && Date.now() - hit.at < (this.opts.cacheMs ?? 6 * 60_000) ? hit : undefined;
+  }
+
+  isWarm(topics: Set<Topic>, question: string, opts: GatherOptions = {}): boolean {
+    return !opts.fresh && this.parts(topics, question).every((p) => this.cached(p));
+  }
+
+  /** Fetches one part, sharing a fetch already in progress (the prefetch and a question can overlap). */
+  private fetch(part: Part): Promise<string> {
+    let p = this.inflight.get(part);
+    if (!p) {
+      p = (part === 'mc2' ? this.mailAndCalendar(2) : part === 'mc7' ? this.mailAndCalendar(7) : this.digest(part === 'headlines' ? HEADLINES : BRIEFING))
+        .then((text) => { this.cache.set(part, { at: Date.now(), text }); return text; })
+        .finally(() => this.inflight.delete(part));
+      this.inflight.set(part, p);
+    }
+    return p;
+  }
+
+  /** Keeps the common parts warm so most questions skip the fetch (spec §7). Errors are logged, not thrown. */
+  async prefetch(): Promise<void> {
+    await Promise.all((['mc2', 'headlines', 'briefing'] as Part[]).map((p) =>
+      this.fetch(p).catch((err: Error) => this.opts.log?.(`prefetch ${p}: ${err.message.slice(0, 300)}`))));
+  }
+
+  async gather(topics: Set<Topic>, question: string, opts: GatherOptions = {}): Promise<GatherResult> {
+    const now = new Date();
+    const out: string[] = [`Now: ${now.toLocaleString('en-US', { timeZone: 'America/Chicago', dateStyle: 'full', timeStyle: 'short' })} (America/Chicago)`];
     const sources: string[] = [];
-    const jobs: Promise<void>[] = [];
-
-    if (topics.has('mail') || topics.has('calendar')) {
-      jobs.push(this.mailAndCalendar(topics.has('mail') ? days : 1).then(
-        (text) => { parts.push(text); sources.push('mail+calendar'); },
-        (err: Error) => { parts.push(`MAIL AND CALENDAR UNAVAILABLE: ${err.message}. Tell Kevin they couldn't be checked.`); },
-      ));
+    let live = false;
+    const results = await Promise.all(this.parts(topics, question).map(async (part) => {
+      const hit = opts.fresh ? undefined : this.cached(part);
+      if (!hit) live = true;
+      try {
+        const text = hit ? hit.text : await this.fetch(part);
+        const at = hit ? hit.at : Date.now();
+        return { part, text, at, ok: true as const };
+      } catch (err) {
+        return { part, text: (err as Error).message, at: 0, ok: false as const };
+      }
+    }));
+    for (const r of results) {
+      const asOf = Date.now() - r.at > 60_000 ? ` (fetched at ${clock(new Date(r.at))}; mention that only if Kevin asks about something very recent)` : '';
+      if (r.part === 'mc2' || r.part === 'mc7') {
+        out.push(r.ok ? `## Mail and calendar${asOf}\n${r.text}` : `MAIL AND CALENDAR UNAVAILABLE: ${r.text}. Tell Kevin they couldn't be checked.`);
+        if (r.ok) sources.push('mail+calendar');
+      } else if (r.part === 'headlines') {
+        out.push(r.ok ? `## Latest headlines digest Jarvis emailed Kevin\n${r.text}` : 'HEADLINES UNAVAILABLE: no digest emailed in the last 2 days.');
+        if (r.ok) sources.push('headlines');
+      } else {
+        out.push(r.ok ? `## This morning's briefing Jarvis emailed Kevin\n${r.text}` : 'BRIEFING UNAVAILABLE: no briefing emailed in the last 2 days.');
+        if (r.ok) sources.push('briefing');
+      }
     }
-    if (topics.has('headlines')) {
-      jobs.push(this.digest('Medicaid & Health Insurance Headlines — ').then(
-        (text) => { parts.push(`## Latest headlines digest Jarvis emailed Kevin\n${text}`); sources.push('headlines'); },
-        () => { parts.push('HEADLINES UNAVAILABLE: no digest emailed in the last 2 days.'); },
-      ));
-    }
-    if (topics.has('briefing')) {
-      jobs.push(this.digest('Daily briefing — ').then(
-        (text) => { parts.push(`## This morning's briefing Jarvis emailed Kevin\n${text}`); sources.push('briefing'); },
-        () => { parts.push('BRIEFING UNAVAILABLE: no briefing emailed in the last 2 days.'); },
-      ));
-    }
-    await Promise.all(jobs);
-    const value = { context: parts.join('\n\n'), sources };
-    this.cache.set(key, { at: Date.now(), value });
-    return value;
+    return { context: out.join('\n\n'), sources, live };
   }
 
   /** Newest digest Jarvis emailed Kevin, read from Apple Mail (the jobs keep only a delivery note). */

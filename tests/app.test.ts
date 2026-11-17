@@ -6,7 +6,7 @@ import type { AskHermes, HermesEvent, HermesRequest } from '../src/hermes.js';
 import type { Speech } from '../src/sidecar.js';
 import { AudioStore, TurnRunner } from '../src/turns.js';
 
-function setup(opts: { answer?: string[]; error?: string; transcript?: string; devTrustLocal?: boolean } = {}) {
+function setup(opts: { answer?: string[]; error?: string; transcript?: string; devTrustLocal?: boolean; warm?: boolean; slowMs?: number; statusDelayMs?: number } = {}) {
   const asks: HermesRequest[] = [];
   const gathered: string[][] = [];
   const speech: Speech = {
@@ -16,15 +16,17 @@ function setup(opts: { answer?: string[]; error?: string; transcript?: string; d
   };
   const ask: AskHermes = async function* (req): AsyncGenerator<HermesEvent> {
     asks.push(req);
+    if (opts.slowMs) await new Promise((r) => setTimeout(r, opts.slowMs));
     if (opts.error) { yield { type: 'error', message: opts.error }; return; }
     for (const d of opts.answer ?? ['One from Brent. ', 'He needs the deck today.']) yield { type: 'delta', text: d };
     yield { type: 'done', status: 'completed' };
   };
   const gatherer: Gatherer = {
-    gather: async (topics) => { gathered.push([...topics]); return { context: 'INBOX: Brent Layton — deck', sources: ['mail'] }; },
+    gather: async (topics) => { gathered.push([...topics]); return { context: 'INBOX: Brent Layton — deck', sources: ['mail'], live: !opts.warm }; },
+    isWarm: () => opts.warm ?? false,
   };
   const audio = new AudioStore();
-  const runner = new TurnRunner({ speech, ask, gatherer, audio, voice: 'bm_george', speed: 1, statusDelayMs: 10_000 });
+  const runner = new TurnRunner({ speech, ask, gatherer, audio, voice: 'bm_george', speed: 1, statusDelayMs: opts.statusDelayMs ?? 10_000 });
   const app = createApp({
     runner, audio, allowedLogin: 'kevin@example.com', devTrustLocal: opts.devTrustLocal ?? false, webDir: '/nonexistent',
     health: async () => ({ server: true, sidecar: true, hermes: true }),
@@ -73,6 +75,24 @@ describe('POST /api/turn', () => {
     await request(app).post('/api/turn?device=d1&conversation=c2').set(KEVIN).send({ text: 'What is on my calendar tomorrow?' });
     await request(app).post('/api/turn?device=d1&conversation=c2').set(KEVIN).send({ text: 'And after that?' });
     expect(gathered).toEqual([['calendar'], ['calendar']]);
+  });
+
+  it('looks nothing up for a reply or sign-off', async () => {
+    const { app, gathered, asks } = setup();
+    await request(app).post('/api/turn?device=d1&conversation=c3').set(KEVIN).send({ text: 'What is on my calendar today?' });
+    await request(app).post('/api/turn?device=d1&conversation=c3').set(KEVIN).send({ text: "Let's have the demo take priority. Thanks, Jarvis." });
+    await request(app).post('/api/turn?device=d1&conversation=c3').set(KEVIN).send({ text: 'No, thanks.' });
+    expect(gathered).toEqual([['calendar']]);
+    expect(asks).toHaveLength(3);
+  });
+
+  it('says a short filler only when it has to fetch', async () => {
+    const live = setup({ slowMs: 80, statusDelayMs: 20 });
+    const a = lines((await request(live.app).post('/api/turn?device=d1&conversation=c4').set(KEVIN).send({ text: 'Any emails?' })).text);
+    expect(a.find((e) => e.type === 'status')?.text).toMatch(/^(One sec|Let me look|Checking now|Let me check|Just a moment|Hang on)\.$/);
+    const warm = setup({ slowMs: 80, statusDelayMs: 20, warm: true });
+    const b = lines((await request(warm.app).post('/api/turn?device=d1&conversation=c5').set(KEVIN).send({ text: 'Any emails?' })).text);
+    expect(b.some((e) => e.type === 'status')).toBe(false);
   });
 
   it('skips Hermes when nothing was heard', async () => {

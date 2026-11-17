@@ -25,6 +25,10 @@ export interface Config {
   webDir: string;
   voice: string;
   speed: number;
+  /** Minutes between background refreshes of mail, calendar and digests (0 = off). */
+  prefetchMinutes: number;
+  /** Local hours [start, end) when the prefetch runs. */
+  prefetchHours: [number, number];
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -54,5 +58,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webDir: env.INTERCOM_WEB_DIR ?? path.join(root, 'web'),
     voice: env.INTERCOM_VOICE ?? 'bm_george',
     speed: Number(env.INTERCOM_SPEED ?? 1.3),
+    prefetchMinutes: Number(env.INTERCOM_PREFETCH_MINUTES ?? 5),
+    prefetchHours: [Number(env.INTERCOM_PREFETCH_FROM ?? 6), Number(env.INTERCOM_PREFETCH_UNTIL ?? 23)],
   };
 }

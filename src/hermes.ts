@@ -70,9 +70,11 @@ export function hermesClient(opts: HermesOptions): AskHermes {
       return;
     }
     if (!res.ok || !res.body) {
-      yield { type: 'error', message: `Jarvis returned HTTP ${res.status}` };
+      const detail = (await res.text().catch(() => '')).replace(/\s+/g, ' ').slice(0, 300);
+      yield { type: 'error', message: `Jarvis returned HTTP ${res.status}${detail ? `: ${detail}` : ''}` };
       return;
     }
+    let finished: HermesEvent | undefined;
     try {
       for await (const { event, data } of sse(res.body)) {
         if (data === '[DONE]') break;
@@ -81,12 +83,10 @@ export function hermesClient(opts: HermesOptions): AskHermes {
         const type: string = payload.type ?? event;
         if (type === 'response.output_text.delta' && typeof payload.delta === 'string') {
           yield { type: 'delta', text: payload.delta };
-        } else if (type === 'response.completed') {
-          yield { type: 'done', status: 'completed' };
-          return;
-        } else if (type === 'response.incomplete') {
-          yield { type: 'done', status: 'incomplete' };
-          return;
+        } else if (type === 'response.completed' || type === 'response.incomplete') {
+          // Keep reading to the end of the stream: Hermes only closes the turn (and admits the next one
+          // in this session) once the response has been fully delivered.
+          finished = { type: 'done', status: type === 'response.completed' ? 'completed' : 'incomplete' };
         } else if (type === 'response.failed' || type === 'response.cancelled' || type === 'error') {
           yield { type: 'error', message: payload.response?.error?.message ?? payload.message ?? type };
           return;
@@ -95,7 +95,7 @@ export function hermesClient(opts: HermesOptions): AskHermes {
           yield { type: 'tool', name: String(name) };
         }
       }
-      yield { type: 'done', status: 'completed' };
+      yield finished ?? { type: 'done', status: 'completed' };
     } catch (err) {
       yield { type: 'error', message: timeout.aborted ? 'Jarvis took too long to answer' : (err as Error).message };
     }

@@ -12,16 +12,28 @@ const cfg = loadConfig();
 const hermesOpts = { url: cfg.hermesUrl, key: cfg.hermesKey, profile: cfg.hermesProfile, timeoutMs: cfg.hermesTimeoutMs };
 const speech = sidecarClient(cfg.sidecarUrl);
 const audio = new AudioStore();
+const gatherer = new ScriptGatherer({
+  scriptsDir: cfg.scriptsDir,
+  python: cfg.gatherPython,
+  digestScript: cfg.digestScript,
+  calendarScript: cfg.calendarScript,
+  log: (line) => console.log(new Date().toISOString(), line),
+});
+
+// Keep mail, calendar and the digests warm during waking hours, so most questions skip the fetch (spec §7).
+if (cfg.prefetchMinutes > 0) {
+  const tick = () => {
+    const h = new Date().getHours();
+    if (h >= cfg.prefetchHours[0] && h < cfg.prefetchHours[1]) void gatherer.prefetch();
+  };
+  setTimeout(tick, 5_000);
+  setInterval(tick, cfg.prefetchMinutes * 60_000).unref();
+}
+
 const runner = new TurnRunner({
   speech,
   ask: hermesClient(hermesOpts),
-  gatherer: new ScriptGatherer({
-    scriptsDir: cfg.scriptsDir,
-    python: cfg.gatherPython,
-    digestScript: cfg.digestScript,
-    calendarScript: cfg.calendarScript,
-    log: (line) => console.log(new Date().toISOString(), line),
-  }),
+  gatherer,
   audio,
   voice: cfg.voice,
   speed: cfg.speed,

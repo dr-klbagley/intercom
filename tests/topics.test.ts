@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classify } from '../src/topics.js';
+import { classify, isQuestion, isReply } from '../src/topics.js';
 
 const t = (q: string) => [...classify(q)].sort();
 
@@ -15,5 +15,20 @@ describe('classify', () => {
   });
   it('returns nothing for general questions', () => {
     expect(t('Tell me a joke')).toEqual([]);
+  });
+});
+
+describe('replies and follow-ups', () => {
+  it('treats replies and sign-offs as needing no lookup', () => {
+    for (const q of ["Let's have the demo take priority. Thanks, Jarvis.", 'No, thanks.', 'Okay, that\'s everything for today.', 'Perfect.', 'Yes please.']) {
+      expect(isReply(q), q).toBe(true);
+    }
+  });
+  it('still treats questions as questions', () => {
+    for (const q of ['Okay, what about Thursday?', 'No, is there anything from Brent?', 'And tomorrow?', 'What does tomorrow look like?']) {
+      expect(isReply(q), q).toBe(false);
+    }
+    expect(isQuestion('And Thursday?')).toBe(true);
+    expect(isQuestion("Let's go with the demo.")).toBe(false);
   });
 });

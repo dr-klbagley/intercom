@@ -1,9 +1,9 @@
 // One spoken (or typed) question, end to end (spec §6).
 import { randomUUID } from 'node:crypto';
-import type { Gatherer } from './gather.js';
+import { wantsFresh, type Gatherer } from './gather.js';
 import type { AskHermes } from './hermes.js';
 import type { Speech } from './sidecar.js';
-import { classify, type Topic } from './topics.js';
+import { classify, isQuestion, isReply, type Topic } from './topics.js';
 import { SpeechStream, VOICE_INSTRUCTIONS, type Card } from './voice.js';
 
 export type TurnEvent =
@@ -48,12 +48,8 @@ export class AudioStore {
 /** Spoken when Hermes can't be reached or doesn't answer. */
 export const HERMES_DOWN = 'My servers appear to be unreachable at the moment.';
 
-const STATUS: Record<Topic, string> = {
-  mail: 'Checking your inbox.',
-  calendar: 'Looking at your calendar.',
-  headlines: 'Pulling up the headlines.',
-  briefing: 'Getting this morning\'s briefing.',
-};
+/** Short, varied things a person says while looking something up (never the same twice in a row). */
+export const FILLERS = ['One sec.', 'Let me look.', 'Checking now.', 'Let me check.', 'Just a moment.', 'Hang on.'];
 
 /** Names and companies Whisper should spell right (spec §6 step 2). */
 export const NAME_HINT = 'Jarvis, Kevin Bagley, Bagley Strategies, Brent Layton, Zane Yates, Jared Allgood, Healthy Together, Twenty, Sharecare, Medicaid, Rivendell, Entmoot, Gandalf.';
@@ -72,6 +68,7 @@ export interface TurnDeps {
 export class TurnRunner {
   /** Last topics per conversation, so "and Thursday?" keeps the calendar context. */
   private lastTopics = new Map<string, { topics: Set<Topic>; at: number }>();
+  private lastFiller = -1;
 
   constructor(private deps: TurnDeps) {}
 
@@ -101,26 +98,32 @@ export class TurnRunner {
     emit({ type: 'transcript', text: question });
 
     const sessionKey = `intercom-${input.device}-${input.conversation}`;
-    let topics = classify(question);
+    // Replies and sign-offs need no lookup; a question-shaped follow-up keeps the last topic.
+    let topics = isReply(question) ? new Set<Topic>() : classify(question);
     const prev = this.lastTopics.get(sessionKey);
-    if (!topics.size && prev && Date.now() - prev.at < 10 * 60_000) topics = prev.topics;
+    if (!topics.size && prev && Date.now() - prev.at < 10 * 60_000 && isQuestion(question) && !isReply(question)) topics = prev.topics;
     if (topics.size) this.lastTopics.set(sessionKey, { topics, at: Date.now() });
+    const fresh = wantsFresh(question);
 
-    // Say what he's doing if nothing has been said after a moment (spec §6 step 6).
+    // A short filler only when he really has to go and fetch something, and nothing's been said for a while.
+    // Answers from the prefetched cache, and replies, get no filler (spec §6 step 6).
     let spokeSomething = false;
-    const statusTimer = topics.size
+    const lookingUp = topics.size > 0 && !(this.deps.gatherer.isWarm?.(topics, question, { fresh }) ?? false);
+    const statusTimer = lookingUp
       ? setTimeout(async () => {
           if (spokeSomething) return;
-          const text = STATUS[[...topics][0]];
-          emit({ type: 'status', text, audio: await say(text) });
-        }, this.deps.statusDelayMs ?? 2500)
+          let i = Math.floor(Math.random() * FILLERS.length);
+          if (i === this.lastFiller) i = (i + 1) % FILLERS.length;
+          this.lastFiller = i;
+          emit({ type: 'status', text: FILLERS[i], audio: await say(FILLERS[i]) });
+        }, this.deps.statusDelayMs ?? 4000)
       : undefined;
 
     try {
       // 4. Gather read-only context (spec §8).
-      let context = 'No extra context was gathered for this question.';
+      let context = 'Nothing new was looked up for this; answer from the conversation so far.';
       if (topics.size) {
-        try { context = (await this.deps.gatherer.gather(topics, question)).context; }
+        try { context = (await this.deps.gatherer.gather(topics, question, { fresh })).context; }
         catch (err) { context = `CONTEXT UNAVAILABLE: ${(err as Error).message}`; }
         // Log only the gatherers' own failure lines (no mail or calendar content) so outages are visible.
         for (const m of context.matchAll(/^[A-Z ]*UNAVAILABLE[^\n]{0,900}/gm)) this.deps.log?.(`turn ${input.turnId} gather: ${m[0]}`);
@@ -163,7 +166,7 @@ export class TurnRunner {
       for (const card of end.cards) emit({ type: 'card', card });
       if (!full.trim()) return fail('empty_answer', 'Jarvis didn\'t have an answer.');
       const ms = Date.now() - started;
-      this.deps.log?.(`turn ${input.turnId} topics=${[...topics].join('+') || 'none'} ms=${ms}`);
+      this.deps.log?.(`turn ${input.turnId} topics=${[...topics].join('+') || 'none'}${lookingUp ? ' live' : topics.size ? ' cached' : ''} ms=${ms}`);
       emit({ type: 'done', text: end.text, ms });
     } finally {
       if (statusTimer) clearTimeout(statusTimer);
