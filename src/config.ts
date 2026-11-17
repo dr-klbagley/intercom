@@ -16,6 +16,9 @@ export interface Config {
   hermesKey: string;
   hermesProfile: string;
   hermesTimeoutMs: number;
+  /** Model and provider for Intercom's turns; unset = Jarvis's default model. */
+  hermesModel?: string;
+  hermesProvider?: string;
   sidecarUrl: string;
   /** Jarvis's read-only gatherer scripts (spec §8). */
   scriptsDir: string;
@@ -50,6 +53,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     hermesKey: required('INTERCOM_HERMES_KEY'),
     hermesProfile: env.INTERCOM_HERMES_PROFILE ?? 'default',
     hermesTimeoutMs: Number(env.INTERCOM_HERMES_TIMEOUT_MS ?? 60_000),
+    hermesModel: env.INTERCOM_HERMES_MODEL || undefined,
+    hermesProvider: env.INTERCOM_HERMES_PROVIDER || undefined,
     sidecarUrl: env.INTERCOM_SIDECAR_URL ?? 'http://127.0.0.1:4178',
     scriptsDir: env.INTERCOM_SCRIPTS_DIR ?? path.join(HERMES_HOME, 'scripts'),
     gatherPython: env.INTERCOM_GATHER_PYTHON ?? path.join(HERMES_HOME, 'hermes-agent/venv/bin/python'),

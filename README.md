@@ -34,6 +34,10 @@ Phone/Mac browser ─ tailscale serve /intercom ─► Intercom server (Node, 12
 - **Mail and Calendar access.** Intercom's service starts through `/usr/bin/osascript`, exactly like the Hermes gateway, so it uses the Full Disk Access and Calendar access already granted there; Node itself is granted nothing. The calendar comes from Jarvis's `Hermes Calendar Helper.app` via `scripts/calendar.sh` (which avoids `open -W`, flaky when the helper exits quickly).
 - **Private.** Tailnet only (never Funnel), and only Kevin's Tailscale login gets in. Audio stays on the Mac mini and is discarded after transcription. Logs hold timings only.
 
+## Model
+
+Intercom uses Jarvis's default model (GPT-6 Sol). `INTERCOM_HERMES_MODEL` plus `INTERCOM_HERMES_PROVIDER` (a `custom_providers` name in Jarvis's config, e.g. `ollama-local`) switch Intercom alone to another model. Tested 2026-11-17: Gemma 4 12B on the Mac mini took 20–190 s per turn with thinking on (about 17 s at best with thinking off) and got facts wrong, against 1–7 s for GPT-6 Sol, so the default stays.
+
 ## Install
 
 As `jarvis`, from this folder:
@@ -50,5 +54,6 @@ After a `git pull`: `scripts/install.sh --app-only`.
     npm test
     npm run typecheck
     npx tsx scripts/check-gather.ts   # runs the real gatherers, prints only sizes and warnings
+    npx tsx scripts/compare-models.ts  # same conversations on Jarvis's default model and a local one, with timings
     node scripts/check-wakeword.mjs clip.wav   # runs the browser wake-word code on 16-bit WAVs, prints the peak score
     npm run dev                       # http://127.0.0.1:4177 (trusts local requests; needs the sidecar and Hermes running)

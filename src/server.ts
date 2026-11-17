@@ -9,7 +9,10 @@ import { AudioStore, TurnRunner } from './turns.js';
 process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err));
 
 const cfg = loadConfig();
-const hermesOpts = { url: cfg.hermesUrl, key: cfg.hermesKey, profile: cfg.hermesProfile, timeoutMs: cfg.hermesTimeoutMs };
+const hermesOpts = {
+  url: cfg.hermesUrl, key: cfg.hermesKey, profile: cfg.hermesProfile, timeoutMs: cfg.hermesTimeoutMs,
+  model: cfg.hermesModel, provider: cfg.hermesProvider,
+};
 const speech = sidecarClient(cfg.sidecarUrl);
 const audio = new AudioStore();
 const gatherer = new ScriptGatherer({

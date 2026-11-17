@@ -20,6 +20,9 @@ export interface HermesOptions {
   key: string;
   profile: string;
   timeoutMs: number;
+  /** Optional model for this channel instead of Jarvis's default (needs `provider` too, e.g. a custom_providers name). */
+  model?: string;
+  provider?: string;
 }
 
 export function endpoint(opts: HermesOptions, route: string): string {
@@ -63,7 +66,10 @@ export function hermesClient(opts: HermesOptions): AskHermes {
           'X-Hermes-Session-Key': req.sessionKey,
           'Idempotency-Key': req.idempotencyKey,
         },
-        body: JSON.stringify({ input: req.input, instructions: req.instructions, stream: true }),
+        body: JSON.stringify({
+          input: req.input, instructions: req.instructions, stream: true,
+          ...(opts.model && opts.provider ? { model: opts.model, provider: opts.provider } : {}),
+        }),
       });
     } catch (err) {
       yield { type: 'error', message: timeout.aborted ? 'Jarvis took too long to answer' : `Can't reach Jarvis (${(err as Error).message})` };
