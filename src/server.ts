@@ -57,4 +57,12 @@ const app = createApp({
   },
 });
 
+// Pre-record the fillers once the speech sidecar is up, so they play instantly.
+void (async () => {
+  for (let i = 0; i < 30; i++) {
+    if (await speech.healthy()) { await runner.warmFillers().catch(() => {}); return; }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+})();
+
 app.listen(cfg.port, '127.0.0.1', () => console.log(`Intercom listening on http://127.0.0.1:${cfg.port}`));

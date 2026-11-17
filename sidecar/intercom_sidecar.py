@@ -140,6 +140,24 @@ def main() -> None:
             except Exception as e:  # noqa: BLE001
                 print("warm-up failed:", e, flush=True)
         threading.Thread(target=warm, daemon=True).start()
+    # Keep Whisper's weights in memory: after an idle spell macOS can page them out, and the next
+    # question then waits ~10 s while they load back. A 1 s silent clip every few minutes prevents that.
+    keep_warm = int(os.environ.get("INTERCOM_STT_KEEPWARM_SECONDS", "180"))
+    if keep_warm > 0:
+        def keep_whisper_warm():
+            import numpy as np
+            silence = io.BytesIO()
+            with wave.open(silence, "wb") as w:
+                w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+                w.writeframes(np.zeros(16000, dtype="<i2").tobytes())
+            clip = silence.getvalue()
+            while True:
+                try:
+                    transcribe(clip, "audio/wav", "")
+                except Exception as e:  # noqa: BLE001
+                    print("keep-warm failed:", e, flush=True)
+                time.sleep(keep_warm)
+        threading.Thread(target=keep_whisper_warm, daemon=True).start()
     print(f"Intercom sidecar on http://{HOST}:{PORT}", flush=True)
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
 

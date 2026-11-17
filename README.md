@@ -13,7 +13,10 @@ Design: [docs/specs/2026-11-16-intercom-design.md](docs/specs/2026-11-16-interco
 - **Mail and calendar questions** ("any emails from tier 1 today?", "what's on tomorrow?"), **headlines** and **the morning briefing**.
 - **Follow-ups** keep the thread ("and Thursday?"). Replies and sign-offs ("let's go with the demo", "no, thanks") look nothing up; Jarvis answers from the conversation in a second or two.
 - **Prefetch:** mail, calendar and the two digests are refreshed in the background every 5 minutes from 6 am to 11 pm, so most questions skip the 3-second fetch. "Check again" or "anything new?" always fetches live.
-- **Fillers:** only when he really has to fetch something and nothing's been said for 4 seconds, a short varied line ("One sec.", "Let me look.").
+- **Fillers:** whenever nothing's been said 3 seconds after the question arrives, a short varied line ("One moment, sir."), and a second one past 13 seconds. They're recorded in advance, so they play instantly.
+- **"Sir":** Jarvis addresses Kevin as "sir", sparingly, never by name.
+- **Speech model kept warm:** the sidecar transcribes a second of silence every 3 minutes, so macOS doesn't page Whisper out between questions (that once cost 12 s).
+- **Timings in the log:** each turn logs ms from arrival for stt, gather, firstToken, firstAudio and filler.
 - **Spoken replies** sentence by sentence, with the text and cards (emails, agenda, headlines) on screen. Mute, replay, typed questions and new conversation.
 - **Siri Shortcut endpoint** (`POST api/ask`); the Shortcut itself comes in phase 1b.
 

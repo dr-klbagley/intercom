@@ -26,7 +26,7 @@ function setup(opts: { answer?: string[]; error?: string; transcript?: string; d
     isWarm: () => opts.warm ?? false,
   };
   const audio = new AudioStore();
-  const runner = new TurnRunner({ speech, ask, gatherer, audio, voice: 'bm_george', speed: 1, statusDelayMs: opts.statusDelayMs ?? 10_000 });
+  const runner = new TurnRunner({ speech, ask, gatherer, audio, voice: 'bm_george', speed: 1, statusDelayMs: opts.statusDelayMs ?? 10_000, longStatusDelayMs: 60_000 });
   const app = createApp({
     runner, audio, allowedLogin: 'kevin@example.com', devTrustLocal: opts.devTrustLocal ?? false, webDir: '/nonexistent',
     health: async () => ({ server: true, sidecar: true, hermes: true }),
@@ -86,13 +86,16 @@ describe('POST /api/turn', () => {
     expect(asks).toHaveLength(3);
   });
 
-  it('says a short filler only when it has to fetch', async () => {
-    const live = setup({ slowMs: 80, statusDelayMs: 20 });
-    const a = lines((await request(live.app).post('/api/turn?device=d1&conversation=c4').set(KEVIN).send({ text: 'Any emails?' })).text);
-    expect(a.find((e) => e.type === 'status')?.text).toMatch(/^(One sec|Let me look|Checking now|Let me check|Just a moment|Hang on)\.$/);
-    const warm = setup({ slowMs: 80, statusDelayMs: 20, warm: true });
-    const b = lines((await request(warm.app).post('/api/turn?device=d1&conversation=c5').set(KEVIN).send({ text: 'Any emails?' })).text);
-    expect(b.some((e) => e.type === 'status')).toBe(false);
+  it('says a short filler whenever the silence runs long, cached or not', async () => {
+    const isFiller = (t?: string) => /^(One moment, sir|Just a moment, sir|Let me see, sir|Bear with me, sir|Right, one moment)\.$/.test(t ?? '');
+    for (const warm of [false, true]) {
+      const slow = setup({ slowMs: 80, statusDelayMs: 20, warm });
+      const ev = lines((await request(slow.app).post('/api/turn?device=d1&conversation=c4').set(KEVIN).send({ text: 'Any emails?' })).text);
+      expect(isFiller(ev.find((e) => e.type === 'status')?.text), `warm=${warm}`).toBe(true);
+    }
+    const quick = setup({ statusDelayMs: 200 });
+    const ev = lines((await request(quick.app).post('/api/turn?device=d1&conversation=c5').set(KEVIN).send({ text: 'Any emails?' })).text);
+    expect(ev.some((e) => e.type === 'status')).toBe(false);
   });
 
   it('skips Hermes when nothing was heard', async () => {
