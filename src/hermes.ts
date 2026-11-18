@@ -67,7 +67,8 @@ export function hermesClient(opts: HermesOptions): AskHermes {
           'Idempotency-Key': req.idempotencyKey,
         },
         body: JSON.stringify({
-          input: req.input, instructions: req.instructions, stream: true,
+          // `conversation` is what chains turns (history); X-Hermes-Session-Key only scopes long-term memory.
+          input: req.input, instructions: req.instructions, stream: true, conversation: req.sessionKey,
           ...(opts.model && opts.provider ? { model: opts.model, provider: opts.provider } : {}),
         }),
       });

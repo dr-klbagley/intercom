@@ -65,6 +65,15 @@ export function slotheriumClient(url: string, key: string, timeoutMs = 8000): Sl
   };
 }
 
+/** Open to-dos plus those completed in the last 14 days, for Jarvis, with ids so he can name one exactly. */
+export function formatTodoContext(open: Todo[], done: Todo[], today: string): string {
+  const cutoff = new Date(Date.now() - 14 * 86_400_000).toISOString().slice(0, 10);
+  const recent = done.filter((t) => (t.completed_at ?? '').slice(0, 10) >= cutoff)
+    .sort((a, b) => (b.completed_at ?? '').localeCompare(a.completed_at ?? ''));
+  const doneText = recent.length ? recent.map((t) => `- ${t.title} (done ${(t.completed_at ?? '').slice(0, 10)})`).join('\n') : 'None in the last 14 days.';
+  return `### Open (${open.length})\n${formatTodos(open, today)}\n\n### Completed in the last 14 days\n${doneText}`;
+}
+
 /** Open to-dos as a compact list for Jarvis, with ids so he can name one exactly. */
 export function formatTodos(todos: Todo[], today: string): string {
   if (!todos.length) return 'No open to-dos.';

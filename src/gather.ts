@@ -9,6 +9,8 @@ import type { Topic } from './topics.js';
 
 export interface GatherResult {
   context: string;
+  /** The same context, one section per source (for de-duplicating within a conversation). */
+  sections?: { name: string; text: string }[];
   sources: string[];
   /** True if anything had to be fetched now (no fresh copy in the cache). */
   live: boolean;
@@ -144,6 +146,7 @@ export class ScriptGatherer implements Gatherer {
 
   async gather(topics: Set<Topic>, question: string, opts: GatherOptions = {}): Promise<GatherResult> {
     const now = new Date();
+    const sections: { name: string; text: string }[] = [];
     const out: string[] = [`Now: ${now.toLocaleString('en-US', { timeZone: 'America/Chicago', dateStyle: 'full', timeStyle: 'short' })} (America/Chicago)`];
     const sources: string[] = [];
     let live = false;
@@ -159,6 +162,7 @@ export class ScriptGatherer implements Gatherer {
       }
     }));
     for (const r of results) {
+      const before = out.length;
       const asOf = Date.now() - r.at > 60_000 ? ` (fetched at ${clock(new Date(r.at))}; mention that only if Kevin asks about something very recent)` : '';
       if (r.part === 'mc2' || r.part === 'mc7') {
         out.push(r.ok ? `## Mail and calendar${asOf}\n${r.text}` : `MAIL AND CALENDAR UNAVAILABLE: ${r.text}. Tell Kevin they couldn't be checked.`);
@@ -174,8 +178,9 @@ export class ScriptGatherer implements Gatherer {
         out.push(r.ok ? (title ? `## ${title}${asOf}\n${r.text}` : r.text) : `${r.part.toUpperCase()} UNAVAILABLE: ${r.text.slice(0, 300)}. Say it couldn't be checked.`);
         if (r.ok) sources.push(r.part);
       }
+      if (out.length > before) sections.push({ name: r.part, text: out.slice(before).join('\n\n') });
     }
-    return { context: out.join('\n\n'), sources, live };
+    return { context: out.join('\n\n'), sections, sources, live };
   }
 
   /** Newest digest Jarvis emailed Kevin, read from Apple Mail (the jobs keep only a delivery note). */

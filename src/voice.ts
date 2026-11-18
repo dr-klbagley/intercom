@@ -33,6 +33,7 @@ Actions: you can now propose an action for Kevin to confirm on his screen. Nothi
   todo.update {id, title and/or due_date}
   email.reply {to: the sender's address exactly as in CONTEXT, subject: the subject exactly as in CONTEXT, body: plain text in Kevin's voice, short, ending with "Kevin" on its own line, reply_all: true only if Kevin says "reply all"}
 - If you can't tell which to-do or email he means, ask instead of guessing.
+- Cards you proposed earlier in this conversation are still on his screen: don't propose them again unless he asks you to change them. "Yes" to your earlier question isn't a request to repeat it.
 - Say briefly what you've drafted and that it's ready for him to confirm ("I've drafted that reply, sir. It's on your screen.").`;
 
 const ABBREVIATIONS = /\b(?:Mr|Mrs|Ms|Dr|St|Jr|Sr|vs|etc|e\.g|i\.e|Inc|Co|Corp|No|a\.m|p\.m)\.$/i;

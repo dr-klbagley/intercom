@@ -150,7 +150,8 @@
       finish('Cancelled', 'cancelled');
       fetch(`api/action/${a.id}/cancel`, { method: 'POST' }).catch(() => {});
     };
-    confirm.onclick = async () => {
+    const doConfirm = async (quiet) => {
+      if (el.dataset.state || confirm.disabled) return;
       audioCtx();
       confirm.disabled = cancel.disabled = true; status.textContent = 'Working…';
       const edits = {}; for (const [k, i] of Object.entries(inputs)) edits[k] = i.value;
@@ -158,12 +159,35 @@
         const r = await fetch(`api/action/${a.id}/confirm`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ edits, mute: muted }) });
         const j = await r.json();
         finish(j.message || (j.ok ? 'Done' : 'Failed'), j.ok ? 'done' : 'failed');
-        stopSpeaking(); enqueueAudio(j.audio);
+        if (!quiet) { stopSpeaking(); enqueueAudio(j.audio); }
+        return j.ok;
       } catch {
-        finish(SERVERS_DOWN, 'failed'); speakLocally(SERVERS_DOWN);
+        finish(SERVERS_DOWN, 'failed'); if (!quiet) speakLocally(SERVERS_DOWN);
+        return false;
       }
     };
+    confirm.onclick = () => doConfirm(false);
     log.appendChild(el);
+    log.scrollTop = log.scrollHeight;
+    return { doConfirm, open: () => !el.dataset.state };
+  }
+
+  // Several proposals in one answer ("add these three"): one tap confirms every card still open.
+  function renderConfirmAll(cards) {
+    const bar = document.createElement('div');
+    bar.className = 'confirm-all';
+    const btn = document.createElement('button'); btn.className = 'btn btn-primary';
+    btn.textContent = `Confirm all ${cards.length}`;
+    btn.onclick = async () => {
+      btn.disabled = true; btn.textContent = 'Working…';
+      let ok = 0;
+      for (const c of cards) if (c.open() && await c.doConfirm(true)) ok++;
+      bar.remove();
+      const msg = ok === cards.length ? `All ${ok} done.` : `${ok} of ${cards.length} done.`;
+      add('status', msg);
+    };
+    bar.appendChild(btn);
+    log.appendChild(bar);
     log.scrollTop = log.scrollHeight;
   }
 
@@ -186,6 +210,7 @@
     const qs = new URLSearchParams({ device, conversation, turn: uuid(), mute: muted ? '1' : '0' });
     let bubble = null;
     const audioIds = [];
+    const turnActions = [];
     try {
       const res = await fetch(`api/turn?${qs}`, { method: 'POST', headers: { 'Content-Type': contentType }, body, signal: abort.signal });
       if (!res.ok || !res.body) throw new Error(res.status === 403 ? 'This device isn\'t signed in to Tailscale as Kevin.' : `HTTP ${res.status}`);
@@ -210,7 +235,7 @@
             if (ev.audio) audioIds.push(ev.audio);
             enqueueAudio(ev.audio);
           } else if (ev.type === 'card') renderCard(ev.card);
-          else if (ev.type === 'action') renderAction(ev.action);
+          else if (ev.type === 'action') turnActions.push(renderAction(ev.action));
           else if (ev.type === 'error') { add('error', ev.spoken || ev.message); enqueueAudio(ev.audio); }
           else if (ev.type === 'done' && bubble) {
             const meta = document.createElement('span'); meta.className = 'meta'; meta.textContent = `${(ev.ms / 1000).toFixed(1)}s`;
@@ -224,6 +249,7 @@
           }
         }
       }
+      if (turnActions.length > 1) renderConfirmAll(turnActions);
     } catch (err) {
       if (err.name === 'AbortError') { /* replaced by a newer turn */ }
       else if (err instanceof TypeError) { add('error', SERVERS_DOWN); speakLocally(SERVERS_DOWN); }

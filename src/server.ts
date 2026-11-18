@@ -5,7 +5,7 @@ import { ScriptGatherer } from './gather.js';
 import { hermesClient, hermesReachable } from './hermes.js';
 import { ActionStore, mailFinder, mailReplier, vaultAudit } from './actions.js';
 import { sidecarClient } from './sidecar.js';
-import { formatTodos, slotheriumClient, type Todo } from './slotherium.js';
+import { formatTodoContext, slotheriumClient, type Todo } from './slotherium.js';
 import { AudioStore, TurnRunner } from './turns.js';
 
 process.on('unhandledRejection', (err) => console.error('Unhandled rejection:', err));
@@ -23,7 +23,10 @@ const gatherer = new ScriptGatherer({
   vaultScript: cfg.vaultScript,
   dashboardUrl: cfg.dashboardUrl,
   todos: slotherium
-    ? async () => formatTodos(await slotherium.call('list_todos', { status: 'open' }) as Todo[], new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' }))
+    ? async () => {
+        const [open, done] = await Promise.all([slotherium.call('list_todos', { status: 'open' }), slotherium.call('list_todos', { status: 'done' })]);
+        return formatTodoContext(open as Todo[], done as Todo[], new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' }));
+      }
     : undefined,
   scriptsDir: cfg.scriptsDir,
   python: cfg.gatherPython,

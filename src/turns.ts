@@ -1,9 +1,9 @@
 // One spoken (or typed) question, end to end (spec §6).
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { wantsFresh, type Gatherer } from './gather.js';
 import type { AskHermes } from './hermes.js';
 import type { Speech } from './sidecar.js';
-import { classify, isQuestion, isReply, type Topic } from './topics.js';
+import { classify, EXPLICIT_CALENDAR, isAction, isQuestion, isReply, type Topic } from './topics.js';
 import type { ActionStore, ActionView } from './actions.js';
 import { ACTION_INSTRUCTIONS, SpeechStream, VOICE_INSTRUCTIONS, type Card } from './voice.js';
 
@@ -81,6 +81,8 @@ export class TurnRunner {
   /** Last topics per conversation, so "and Thursday?" keeps the calendar context. */
   private lastTopics = new Map<string, { topics: Set<Topic>; at: number }>();
   private lastFiller = new Map<string[], number>();
+  /** Context sections already sent in each conversation (Hermes keeps the history), by content hash. */
+  private sentSections = new Map<string, { hashes: Set<string>; at: number }>();
   /** Fillers are synthesized once and reused, so they play at once instead of queueing behind transcription. */
   private fillerAudio = new Map<string, Promise<Buffer | undefined>>();
 
@@ -98,6 +100,23 @@ export class TurnRunner {
   /** Synthesizes every filler in advance (call at startup, once the speech sidecar is up). */
   async warmFillers(): Promise<void> {
     for (const t of [...FILLERS, ...LONG_FILLERS]) await this.fillerWav(t);
+  }
+
+  /** Sends each context section once per conversation; repeats become a one-line pointer. */
+  private dedupe(sessionKey: string, full: string, sections: { name: string; text: string }[]): string {
+    const now = Date.now();
+    for (const [k, v] of this.sentSections) if (now - v.at > 60 * 60_000) this.sentSections.delete(k);
+    const seen = this.sentSections.get(sessionKey) ?? { hashes: new Set<string>(), at: now };
+    seen.at = now;
+    this.sentSections.set(sessionKey, seen);
+    const head = full.split('\n\n')[0]; // the "Now:" line
+    const parts = sections.map((s) => {
+      const h = createHash('sha256').update(s.text).digest('hex');
+      if (seen.hashes.has(h)) return `## ${s.name}: unchanged since you were given it earlier in this conversation (use that).`;
+      seen.hashes.add(h);
+      return s.text;
+    });
+    return [head, ...parts].join('\n\n');
   }
 
   private pick(list: string[]): string {
@@ -156,15 +175,22 @@ export class TurnRunner {
     // Replies and sign-offs need no lookup; a question-shaped follow-up keeps the last topic.
     let topics = isReply(question) ? new Set<Topic>() : classify(question);
     const prev = this.lastTopics.get(sessionKey);
-    if (!topics.size && prev && Date.now() - prev.at < 10 * 60_000 && isQuestion(question) && !isReply(question)) topics = prev.topics;
+    const recent = prev && Date.now() - prev.at < 10 * 60_000;
+    if (!topics.size && recent && (isQuestion(question) || isAction(question)) && !isReply(question)) topics = prev.topics;
+    // "Push the Sara Howard one to Monday": a weekday alone doesn't make an action about the calendar.
+    else if (recent && isAction(question) && topics.size === 1 && topics.has('calendar') && !EXPLICIT_CALENDAR.test(question)) topics = prev.topics;
     if (topics.size) this.lastTopics.set(sessionKey, { topics, at: Date.now() });
     const fresh = wantsFresh(question);
     const lookingUp = topics.size > 0 && !(this.deps.gatherer.isWarm?.(topics, question, { fresh }) ?? false);
 
       // 4. Gather read-only context (spec §8).
-      let context = 'Nothing new was looked up for this; answer from the conversation so far.';
+      const now = new Date().toLocaleString('en-US', { timeZone: 'America/Chicago', dateStyle: 'full', timeStyle: 'short' });
+      let context = `Now: ${now} (America/Chicago)\nNothing new was looked up for this; answer from the conversation so far.`;
       if (topics.size) {
-        try { context = (await this.deps.gatherer.gather(topics, question, { fresh })).context; }
+        try {
+          const g = await this.deps.gatherer.gather(topics, question, { fresh });
+          context = g.sections ? this.dedupe(sessionKey, g.context, g.sections) : g.context;
+        }
         catch (err) { context = `CONTEXT UNAVAILABLE: ${(err as Error).message}`; }
         // Log only the gatherers' own failure lines (no mail or calendar content) so outages are visible.
         for (const m of context.matchAll(/^[A-Z ]*UNAVAILABLE[^\n]{0,900}/gm)) this.deps.log?.(`turn ${input.turnId} gather: ${m[0]}`);

@@ -14,11 +14,14 @@ const RULES: [Topic, RegExp][] = [
   ['system', /\b(mac mini|servers?|system status|dashboard|is everything (up|working|running|ok|okay)|ollama|services? (up|down|running))\b/i],
 ];
 
+/** Words that really mean the calendar (a weekday or "today" alone may not). */
+export const EXPLICIT_CALENDAR = /\b(calendar|schedule|meetings?|agenda|appointments?|events?|busy|free)\b/i;
+
 export function classify(question: string): Set<Topic> {
   const topics = new Set<Topic>();
   for (const [topic, re] of RULES) if (re.test(question)) topics.add(topic);
   // A time word alone ("emails today", "my list this week") is about that other topic, not the calendar.
-  if (topics.has('calendar') && topics.size > 1 && !/\b(calendar|schedule|meetings?|agenda|appointments?|events?|busy|free)\b/i.test(question)) {
+  if (topics.has('calendar') && topics.size > 1 && !EXPLICIT_CALENDAR.test(question)) {
     topics.delete('calendar');
   }
   return topics;
@@ -35,6 +38,11 @@ const ACTION_WORDS = /\b(add|reply|respond|write back|mark|complete|change|move|
 
 export function isReply(question: string): boolean {
   return REPLY_START.test(question) && !ASKS.test(question) && !ACTION_WORDS.test(question);
+}
+
+/** An instruction to do something ("push that one to Monday", "mark it done"). */
+export function isAction(question: string): boolean {
+  return ACTION_WORDS.test(question);
 }
 
 /** A question-shaped follow-up ("and Thursday?", "what about after lunch?") that can reuse the last topic. */

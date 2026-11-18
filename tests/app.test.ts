@@ -22,7 +22,7 @@ function setup(opts: { answer?: string[]; error?: string; transcript?: string; d
     yield { type: 'done', status: 'completed' };
   };
   const gatherer: Gatherer = {
-    gather: async (topics) => { gathered.push([...topics]); return { context: 'INBOX: Brent Layton — deck', sources: ['mail'], live: !opts.warm }; },
+    gather: async (topics) => { gathered.push([...topics]); return { context: 'Now: x\n\nINBOX: Brent Layton — deck', sections: [{ name: 'mc2', text: 'INBOX: Brent Layton — deck' }], sources: ['mail'], live: !opts.warm }; },
     isWarm: () => opts.warm ?? false,
   };
   const audio = new AudioStore();
@@ -75,6 +75,15 @@ describe('POST /api/turn', () => {
     await request(app).post('/api/turn?device=d1&conversation=c2').set(KEVIN).send({ text: 'What is on my calendar tomorrow?' });
     await request(app).post('/api/turn?device=d1&conversation=c2').set(KEVIN).send({ text: 'And after that?' });
     expect(gathered).toEqual([['calendar'], ['calendar']]);
+  });
+
+  it('sends each context section once per conversation', async () => {
+    const { app, asks } = setup();
+    await request(app).post('/api/turn?device=d1&conversation=c9').set(KEVIN).send({ text: 'Any emails?' });
+    await request(app).post('/api/turn?device=d1&conversation=c9').set(KEVIN).send({ text: 'Any emails from Brent?' });
+    expect(asks[0].input).toMatch(/Brent Layton — deck/);
+    expect(asks[1].input).not.toMatch(/Brent Layton — deck/);
+    expect(asks[1].input).toMatch(/unchanged since you were given it earlier/);
   });
 
   it('looks nothing up for a reply or sign-off', async () => {
