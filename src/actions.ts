@@ -28,6 +28,8 @@ export interface ActionView {
 interface Pending {
   view: ActionView;
   proposal: Proposal;
+  /** The conversation it was proposed in: a spoken "yes" only confirms cards from the same one. */
+  conversation: string;
   /** For email: the exact message being replied to, resolved by Intercom (never taken from Jarvis). */
   message?: MailMessage;
   todo?: Todo;
@@ -54,6 +56,11 @@ export interface ActionDeps {
   ttlMs?: number;
   log?: (line: string) => void;
 }
+
+/** A whole utterance that just says yes to the cards on screen ("yes", "yes please, add them", "go ahead"). */
+export const SAY_YES = /^\s*(?:(?:yes|yeah|yep|yup|sure|ok(?:ay)?|confirm(?:ed)?|do it|go ahead|please do|sounds good|that's right|correct|perfect|great|add (?:it|them|that|those|both)(?: to my list)?|that's (?:fine|good|great))[\s,.!]*)+(?:(?:please|thanks|thank you|jarvis|sir)[\s,.!]*)*$/i;
+/** A whole utterance that declines them ("no", "cancel that", "never mind"). */
+export const SAY_NO = /^\s*(?:(?:no|nope|nah|cancel(?: (?:it|that|them|those|both))?|never ?mind|scratch that|don't (?:add|do) (?:it|that|them))[\s,.!]*)+(?:(?:thanks|thank you|jarvis|sir)[\s,.!]*)*$/i;
 
 const ACTION_RE = /```intercom-action\s*([\s\S]*?)```/g;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -112,7 +119,7 @@ export class ActionStore {
   }
 
   /** Checks a proposal against Slotherium / Mail and, if it holds up, makes it a pending action. */
-  async propose(raw: unknown, device: string, question: string): Promise<ActionView | { error: string }> {
+  async propose(raw: unknown, device: string, question: string, conversation = ''): Promise<ActionView | { error: string }> {
     this.sweep();
     const p = parseProposal(raw);
     if (!p) return { error: 'not a valid action' };
@@ -154,19 +161,27 @@ export class ActionStore {
         lines: [`To: ${m.fromName ? `${m.fromName} <${m.from}>` : m.from}${p.reply_all ? ' and everyone on the email' : ''}`, `Re: ${m.subject.replace(/^(re|fwd?):\s*/i, '')}`, `Replying to the email of ${m.date}`],
         fields: [{ name: 'body', label: 'Message', type: 'textarea', value: p.body }] };
     }
-    this.pending.set(id, { view, proposal: p, device, question, ...extra });
+    this.pending.set(id, { view, proposal: p, device, question, conversation, ...extra });
     return view;
   }
 
-  cancel(id: string): boolean {
+  /** Open cards in this conversation, oldest first; `todosOnly` for what a spoken yes/no may settle. */
+  openIn(conversation: string, todosOnly: boolean): ActionView[] {
+    this.sweep();
+    return [...this.pending.values()]
+      .filter((p) => p.conversation === conversation && (!todosOnly || p.view.kind.startsWith('todo.')))
+      .map((p) => p.view);
+  }
+
+  cancel(id: string, via: 'tap' | 'voice' = 'tap'): boolean {
     const p = this.pending.get(id);
     this.pending.delete(id);
-    if (p) void this.deps.audit(`cancelled · ${p.view.kind} · ${p.view.lines[0] ?? p.view.fields[0]?.value ?? ''}`).catch(() => {});
+    if (p) void this.deps.audit(`cancelled (${via}) · ${p.view.kind} · ${p.view.lines[0] ?? p.view.fields[0]?.value ?? ''}`).catch(() => {});
     return !!p;
   }
 
   /** Runs a pending action once, with Kevin's edits. Returns what to say. */
-  async confirm(id: string, edits: Record<string, unknown> = {}): Promise<{ ok: boolean; message: string }> {
+  async confirm(id: string, edits: Record<string, unknown> = {}, via: 'tap' | 'voice' = 'tap'): Promise<{ ok: boolean; message: string }> {
     this.sweep();
     const p = this.pending.get(id);
     if (!p) return { ok: false, message: 'That has expired, sir. Ask me again if you still want it.' };
@@ -214,7 +229,7 @@ export class ActionStore {
       detail = (err as Error).message.slice(0, 300);
       this.deps.log?.(`action ${p.view.kind} failed: ${detail}`);
     }
-    await this.deps.audit(`${ok ? 'done' : 'FAILED'} · ${p.view.kind} · ${detail} · asked: "${p.question.slice(0, 200)}"`).catch((e) => this.deps.log?.(`audit failed: ${(e as Error).message}`));
+    await this.deps.audit(`${ok ? 'done' : 'FAILED'} (${via}) · ${p.view.kind} · ${detail} · asked: "${p.question.slice(0, 200)}"`).catch((e) => this.deps.log?.(`audit failed: ${(e as Error).message}`));
     return { ok, message: message! };
   }
 }

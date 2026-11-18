@@ -109,6 +109,7 @@
   }
 
   // Phase 2: a proposed action. Nothing happens until Kevin taps Confirm (spec §14.3).
+  const actionCards = new Map(); // id -> { finish } so a spoken yes/no can settle the card
   function renderAction(a) {
     $('empty')?.remove();
     const el = document.createElement('section');
@@ -167,6 +168,7 @@
       }
     };
     confirm.onclick = () => doConfirm(false);
+    actionCards.set(a.id, { finish, open: () => !el.dataset.state });
     log.appendChild(el);
     log.scrollTop = log.scrollHeight;
     return { doConfirm, open: () => !el.dataset.state };
@@ -236,6 +238,11 @@
             enqueueAudio(ev.audio);
           } else if (ev.type === 'card') renderCard(ev.card);
           else if (ev.type === 'action') turnActions.push(renderAction(ev.action));
+          else if (ev.type === 'action_result') {
+            const c = actionCards.get(ev.id);
+            if (c?.open()) c.finish(ev.message, ev.message === 'Cancelled.' ? 'cancelled' : ev.ok ? 'done' : 'failed');
+            if (![...actionCards.values()].some((x) => x.open())) document.querySelectorAll('.confirm-all').forEach((b) => b.remove());
+          }
           else if (ev.type === 'error') { add('error', ev.spoken || ev.message); enqueueAudio(ev.audio); }
           else if (ev.type === 'done' && bubble) {
             const meta = document.createElement('span'); meta.className = 'meta'; meta.textContent = `${(ev.ms / 1000).toFixed(1)}s`;

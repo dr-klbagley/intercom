@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ActionStore, extractActions, parseProposal, type MailMessage } from '../src/actions.js';
+import { ActionStore, extractActions, parseProposal, SAY_NO, SAY_YES, type MailMessage } from '../src/actions.js';
+import { AudioStore, TurnRunner, type TurnEvent } from '../src/turns.js';
 import type { Slotherium, Todo } from '../src/slotherium.js';
 import { SpeechStream } from '../src/voice.js';
 
@@ -77,5 +78,45 @@ describe('ActionStore', () => {
     if ('error' in view) throw new Error(view.error);
     expect((await store.confirm(view.id)).message).toMatch(/expired/);
     expect(calls).toEqual([]);
+  });
+});
+
+describe('spoken yes / no', () => {
+  it('only the whole utterance counts', () => {
+    for (const y of ['Yes.', 'Yes please.', 'Yeah, add it.', 'Go ahead, Jarvis.', 'Yes, add them. Thanks.', 'Okay.', 'Do it.', 'Sure, sir.']) expect(SAY_YES.test(y), y).toBe(true);
+    for (const n of ['Yes, and add one for Friday.', 'Yes, what else is due?', 'Is that added?', 'Add a to-do to call Brent.']) expect(SAY_YES.test(n), n).toBe(false);
+    for (const n of ['No.', 'No thanks.', 'Cancel that.', 'Never mind.', "Don't add it."]) expect(SAY_NO.test(n), n).toBe(true);
+    expect(SAY_NO.test('No, make it Monday instead.')).toBe(false);
+  });
+
+  it('confirms the to-do cards of this conversation by voice, but never an email', async () => {
+    const calls: [string, Record<string, unknown>][] = [];
+    const slotherium: Slotherium = { call: async (tool, args) => { calls.push([tool, args]); return tool === 'list_todos' ? TODOS : {}; } };
+    const sendReply = vi.fn(async () => 'Sent');
+    const store = new ActionStore({ slotherium, findMessage: async () => [MSG], sendReply, audit: async () => {} });
+    const answers = [
+      ['Shall I add it, sir?\n```intercom-action\n{"kind":"todo.add","title":"Call Zane","due_date":"2026-11-24"}\n```\n```intercom-action\n{"kind":"email.reply","to":"laquetta@example.gov","subject":"Connect,","body":"Yes.\\nKevin"}\n```'],
+    ];
+    const asks: string[] = [];
+    const runner = new TurnRunner({
+      speech: { transcribe: async () => '', speak: async () => Buffer.from('wav'), healthy: async () => true },
+      ask: async function* (req) { asks.push(req.input); for (const d of answers.shift() ?? ['Okay.']) yield { type: 'delta' as const, text: d }; yield { type: 'done' as const, status: 'completed' as const }; },
+      gatherer: { gather: async () => ({ context: 'ctx', sources: [], live: false }) },
+      audio: new AudioStore(), voice: 'v', speed: 1, statusDelayMs: 60_000, longStatusDelayMs: 60_000, actions: store,
+    });
+    const run = async (text: string, conversation = 'c1') => {
+      const ev: TurnEvent[] = [];
+      await runner.run({ turnId: crypto.randomUUID(), device: 'd1', conversation, text, speak: false }, (e) => ev.push(e));
+      return ev;
+    };
+    const first = await run('Remind me to call Zane next Tuesday, and reply yes to LaQuetta.');
+    expect(first.filter((e) => e.type === 'action')).toHaveLength(2);
+    expect(await run('Yes.', 'other-conversation')).toEqual(expect.not.arrayContaining([expect.objectContaining({ type: 'action_result' })]));
+    const yes = await run('Yes please.');
+    expect(yes.filter((e) => e.type === 'action_result')).toEqual([expect.objectContaining({ ok: true })]);
+    expect(yes.find((e) => e.type === 'sentence')).toMatchObject({ text: "Done, sir. It's on your list. The email still needs a tap to send." });
+    expect(calls.filter(([t]) => t === 'add_todo')).toHaveLength(1);
+    expect(sendReply).not.toHaveBeenCalled();
+    expect(asks).toHaveLength(2); // "Yes please." never went to Jarvis
   });
 });

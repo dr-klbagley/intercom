@@ -248,7 +248,7 @@ First step: confirm which service hosts each account, then pick.
 ### 14.6 Recommendations for the rest (researched 2026-11-17; Kevin: to-dos are priority 1)
 
 **To-dos (built, priority 1).** Add, complete, reschedule and rename, with "Confirm all" for several at once; Jarvis sees open and recently completed to-dos and remembers the conversation. Next, if Kevin wants them:
-- *Voice confirm for to-dos only.* To-dos are low-risk and easy to undo, so "yes, add it" could confirm a to-do card by voice (email would still need a tap). Kevin's call.
+- ✅ *Voice confirm for to-dos only* (Kevin, 2026-11-17). A whole-utterance "yes" / "no" ("yes please", "go ahead", "cancel that") settles the open to-do cards of the same conversation without going to Jarvis; email cards still need a tap. Logged as "(voice)" in the audit.
 - *Household lists and assignment* ("add milk to the household list", "give that one to Blair"): Slotherium supports `list` and `assigned_to`, but Intercom would need the household's list names and user ids.
 
 **Calendar (recommended next).** Both of Kevin's accounts (Bagley Strategies, Healthy Together / twenty.co) are Google accounts in macOS.

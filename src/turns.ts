@@ -4,7 +4,7 @@ import { wantsFresh, type Gatherer } from './gather.js';
 import type { AskHermes } from './hermes.js';
 import type { Speech } from './sidecar.js';
 import { classify, EXPLICIT_CALENDAR, isAction, isQuestion, isReply, type Topic } from './topics.js';
-import type { ActionStore, ActionView } from './actions.js';
+import { SAY_NO, SAY_YES, type ActionStore, type ActionView } from './actions.js';
 import { ACTION_INSTRUCTIONS, SpeechStream, VOICE_INSTRUCTIONS, type Card } from './voice.js';
 
 export type TurnEvent =
@@ -13,6 +13,7 @@ export type TurnEvent =
   | { type: 'sentence'; text: string; audio?: string }
   | { type: 'card'; card: Card }
   | { type: 'action'; action: ActionView }
+  | { type: 'action_result'; id: string; ok: boolean; message: string }
   | { type: 'done'; text: string; ms: number }
   | { type: 'error'; message: string; spoken?: string; audio?: string };
 
@@ -172,6 +173,32 @@ export class TurnRunner {
     emit({ type: 'transcript', text: question });
 
     const sessionKey = `intercom-${input.device}-${input.conversation}`;
+
+    // A spoken "yes" / "no" settles the to-do cards on screen (Kevin chose voice confirm for to-dos only;
+    // email still needs a tap). Only the whole utterance counts, and only cards from this conversation.
+    if (this.deps.actions && (SAY_YES.test(question) || SAY_NO.test(question))) {
+      const todos = this.deps.actions.openIn(sessionKey, true);
+      if (todos.length) {
+        const yes = SAY_YES.test(question);
+        let ok = 0;
+        for (const card of todos) {
+          const r = yes ? await this.deps.actions.confirm(card.id, {}, 'voice') : { ok: this.deps.actions.cancel(card.id, 'voice'), message: 'Cancelled.' };
+          if (r.ok) ok++;
+          emit({ type: 'action_result', id: card.id, ok: r.ok, message: r.message });
+        }
+        const others = this.deps.actions.openIn(sessionKey, false).length;
+        const n = todos.length;
+        let text = yes
+          ? (ok === n ? (n === 1 ? 'Done, sir. It\'s on your list.' : n === 2 ? 'Done, sir. Both are on your list.' : `Done, sir. All ${n} are on your list.`) : `${ok} of ${n} went through, sir. The rest didn't change.`)
+          : (n === 1 ? 'Right, I\'ve dropped it.' : n === 2 ? 'Right, I\'ve dropped both.' : `Right, I've dropped all ${n}.`);
+        if (yes && others) text += ' The email still needs a tap to send.';
+        spokeSomething = true;
+        emit({ type: 'sentence', text, audio: await say(text) });
+        this.deps.log?.(`turn ${input.turnId} voice ${yes ? 'confirm' : 'cancel'} todos=${n} ok=${ok}`);
+        emit({ type: 'done', text, ms: Date.now() - started });
+        return;
+      }
+    }
     // Replies and sign-offs need no lookup; a question-shaped follow-up keeps the last topic.
     let topics = isReply(question) ? new Set<Topic>() : classify(question);
     const prev = this.lastTopics.get(sessionKey);
@@ -237,7 +264,7 @@ export class TurnRunner {
       // Proposed actions: checked against Slotherium / Mail, then shown for Kevin to confirm.
       if (this.deps.actions) {
         for (const raw of end.proposals.slice(0, 3)) {
-          const r = await this.deps.actions.propose(raw, input.device, question).catch((err: Error) => ({ error: err.message }));
+          const r = await this.deps.actions.propose(raw, input.device, question, sessionKey).catch((err: Error) => ({ error: err.message }));
           if ('error' in r) this.deps.log?.(`turn ${input.turnId} action dropped: ${r.error}`);
           else emit({ type: 'action', action: r });
         }
