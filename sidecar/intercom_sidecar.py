@@ -27,6 +27,9 @@ WHISPER_MODEL = os.environ.get("INTERCOM_WHISPER_MODEL", "mlx-community/whisper-
 KOKORO_MODEL = MODELS / "kokoro-v1.0.onnx"
 KOKORO_VOICES = MODELS / "voices-v1.0.bin"
 MAX_AUDIO = 15 * 1024 * 1024
+# Silence added after a sentence-ending clip. Intercom speaks one sentence per clip, and Kokoro leaves only
+# ~140 ms between them, which sounds rushed at a full stop (Kevin, 2026-11-17).
+SENTENCE_PAUSE_MS = int(os.environ.get("INTERCOM_SENTENCE_PAUSE_MS", "400"))
 MAX_TEXT = 1200
 
 SUFFIX = {"audio/webm": ".webm", "video/webm": ".webm", "audio/mp4": ".m4a", "video/mp4": ".m4a",
@@ -63,6 +66,8 @@ def synthesize(text: str, voice: str, speed: float) -> bytes:
     import numpy as np
     with _lock:
         samples, rate = kokoro().create(text, voice=voice, speed=speed, lang="en-us" if voice.startswith("a") else "en-gb")
+    if SENTENCE_PAUSE_MS > 0 and text.rstrip().rstrip('"\'”’)').endswith((".", "!", "?", "…")):
+        samples = np.concatenate([samples, np.zeros(int(rate * SENTENCE_PAUSE_MS / 1000), dtype=samples.dtype)])
     pcm = (np.clip(samples, -1.0, 1.0) * 32767).astype("<i2").tobytes()
     buf = io.BytesIO()
     with wave.open(buf, "wb") as w:
