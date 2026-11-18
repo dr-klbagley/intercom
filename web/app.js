@@ -270,7 +270,7 @@
 
   // ---------- recording
   let micStream = null, recorder = null, chunks = [], tapMode = false, pressAt = 0, startedAt = 0;
-  let analyser = null, micSource = null, vadTimer = null, heardSpeech = false, quietSince = 0;
+  let analyser = null, micSource = null, vadTimer = null, heardSpeech = false, quietSince = 0, noiseFloor = null;
   const MIME = ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm'].find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || '';
 
   async function ensureMic() {
@@ -285,7 +285,7 @@
   }
   function releaseMic() {
     micStream?.getTracks().forEach((t) => t.stop());
-    micStream = null; analyser = null; micSource = null; wakeDetach();
+    micStream = null; analyser = null; micSource = null; noiseFloor = null; wakeDetach();
   }
   function level() {
     if (!analyser) return 0;
@@ -310,10 +310,13 @@
     tone(true);
     setMode('listening');
     clearInterval(vadTimer);
+    const vad = new IntercomVad.Vad({ floor: noiseFloor });
     vadTimer = setInterval(() => {
       const l = level();
       talk.style.setProperty('--level', String(1 + Math.min(l * 8, 0.35)));
-      if (l > 0.02) { heardSpeech = true; quietSince = 0; } else if (!quietSince) quietSince = Date.now();
+      const talking = vad.push(l);
+      noiseFloor = vad.floor;
+      if (talking) { heardSpeech = true; quietSince = 0; } else if (!quietSince) quietSince = Date.now();
       const elapsed = Date.now() - startedAt;
       // Tap mode ends itself 3 s after you stop talking; any recording stops at 30 s.
       if ((tapMode && heardSpeech && quietSince && Date.now() - quietSince > 3000) || elapsed > 30_000) finishListening(true);
