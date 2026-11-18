@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { classify, isQuestion, isReply } from '../src/topics.js';
+import { classify, isQuestion, isReply, wantsWeb, webQuery } from '../src/topics.js';
 
 const t = (q: string) => [...classify(q)].sort();
 
@@ -41,5 +41,26 @@ describe('replies and follow-ups', () => {
     }
     expect(isQuestion('And Thursday?')).toBe(true);
     expect(isQuestion("Let's go with the demo.")).toBe(false);
+  });
+});
+
+describe('web search', () => {
+  const web = (q: string) => wantsWeb(q, classify(q));
+  it('searches for real questions none of his sources cover, or when asked', () => {
+    expect(web('Jarvis - did Maine have a gubernatorial election this month?')).toBe(true);
+    expect(web('Look up who won the Virginia governor race.')).toBe(true);
+    expect(web('Search online for the CMS final rule on prior authorization.')).toBe(true);
+  });
+  it("doesn't search for his own data, replies, actions or small talk", () => {
+    expect(web('What does my calendar look like tomorrow?')).toBe(false);
+    expect(web('Any emails from tier 1 today?')).toBe(false);
+    expect(web('Thanks, Jarvis.')).toBe(false);
+    expect(web('Add a to-do to call Brent.')).toBe(false);
+    expect(web('Tell me a joke.')).toBe(false);
+  });
+  it('builds the query from his own words only', () => {
+    expect(webQuery('Jarvis - did Maine have a gubernatorial election this month?')).toBe('did Maine have a gubernatorial election this month');
+    expect(webQuery('Hey Jarvis, can you look up who won the Virginia governor race?')).toBe('who won the Virginia governor race');
+    expect(webQuery('Search online for the CMS final rule on prior authorization.')).toBe('the CMS final rule on prior authorization');
   });
 });

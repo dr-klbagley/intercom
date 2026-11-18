@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { wantsFresh, type Gatherer } from './gather.js';
 import type { AskHermes } from './hermes.js';
 import type { Speech } from './sidecar.js';
-import { classify, EXPLICIT_CALENDAR, isAction, isQuestion, isReply, type Topic } from './topics.js';
+import { classify, EXPLICIT_CALENDAR, isAction, isQuestion, isReply, wantsWeb, webQuery, type Topic } from './topics.js';
 import { SAY_NO, SAY_YES, type ActionStore, type ActionView } from './actions.js';
 import { ACTION_INSTRUCTIONS, SpeechStream, VOICE_INSTRUCTIONS, type Card } from './voice.js';
 
@@ -80,7 +80,7 @@ export interface TurnDeps {
 
 export class TurnRunner {
   /** Last topics per conversation, so "and Thursday?" keeps the calendar context. */
-  private lastTopics = new Map<string, { topics: Set<Topic>; at: number }>();
+  private lastTopics = new Map<string, { topics: Set<Topic>; at: number; query?: string }>();
   private lastFiller = new Map<string[], number>();
   /** Context sections already sent in each conversation (Hermes keeps the history), by content hash. */
   private sentSections = new Map<string, { hashes: Set<string>; at: number }>();
@@ -206,7 +206,12 @@ export class TurnRunner {
     if (!topics.size && recent && (isQuestion(question) || isAction(question)) && !isReply(question)) topics = prev.topics;
     // "Push the Sara Howard one to Monday": a weekday alone doesn't make an action about the calendar.
     else if (recent && isAction(question) && topics.size === 1 && topics.has('calendar') && !EXPLICIT_CALENDAR.test(question)) topics = prev.topics;
-    if (topics.size) this.lastTopics.set(sessionKey, { topics, at: Date.now() });
+    // Web search: when asked, or when a real question matches none of Kevin's own sources. A follow-up to a
+    // search ("and who won?") searches again with the earlier question for context.
+    let query: string | undefined;
+    if (topics.has('web') && recent && prev?.query) query = `${prev.query} ${webQuery(question)}`.slice(0, 300);
+    else if (wantsWeb(question, topics)) { topics = new Set([...topics, 'web']); query = webQuery(question); }
+    if (topics.size) this.lastTopics.set(sessionKey, { topics, at: Date.now(), query: query ?? (topics.has('web') ? prev?.query : undefined) });
     const fresh = wantsFresh(question);
     const lookingUp = topics.size > 0 && !(this.deps.gatherer.isWarm?.(topics, question, { fresh }) ?? false);
 
@@ -215,7 +220,7 @@ export class TurnRunner {
       let context = `Now: ${now} (America/Chicago)\nNothing new was looked up for this; answer from the conversation so far.`;
       if (topics.size) {
         try {
-          const g = await this.deps.gatherer.gather(topics, question, { fresh });
+          const g = await this.deps.gatherer.gather(topics, question, { fresh, webQuery: query });
           context = g.sections ? this.dedupe(sessionKey, g.context, g.sections) : g.context;
         }
         catch (err) { context = `CONTEXT UNAVAILABLE: ${(err as Error).message}`; }

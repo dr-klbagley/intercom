@@ -21,6 +21,8 @@ const slotherium = cfg.slotheriumKey ? slotheriumClient(cfg.slotheriumUrl, cfg.s
 const gatherer = new ScriptGatherer({
   vaultDir: cfg.vaultDir,
   vaultScript: cfg.vaultScript,
+  webScript: path.join(path.dirname(cfg.webDir), 'scripts/web_search.py'),
+  hermesAgentDir: path.join(path.dirname(cfg.gatherPython), '..', '..'),
   dashboardUrl: cfg.dashboardUrl,
   todos: slotherium
     ? async () => {

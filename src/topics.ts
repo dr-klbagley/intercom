@@ -1,6 +1,6 @@
 // Which read-only context a question needs (spec §7, §8).
 
-export type Topic = 'mail' | 'calendar' | 'headlines' | 'briefing' | 'todos' | 'research' | 'linkedin' | 'mindstone' | 'system';
+export type Topic = 'mail' | 'calendar' | 'headlines' | 'briefing' | 'todos' | 'research' | 'linkedin' | 'mindstone' | 'system' | 'web';
 
 const RULES: [Topic, RegExp][] = [
   ['mail', /\b(e-?mails?|inbox|mail|messages?|reply to|respond to|write back|tier\s*(1|2|one|two)|vips?|wrote|written|sent me|replied|reply from|heard from|from (brent|zane|jared))\b/i],
@@ -16,6 +16,32 @@ const RULES: [Topic, RegExp][] = [
 
 /** Words that really mean the calendar (a weekday or "today" alone may not). */
 export const EXPLICIT_CALENDAR = /\b(calendar|schedule|meetings?|agenda|appointments?|events?|busy|free)\b/i;
+
+/** Asking to go to the web ("look it up", "search for…", "online"). */
+const WEB_ASK = /\b(search( the web| online| for)?|look (it|that|this)? ?up|google|online|on the (web|internet)|check the (web|internet|news))\b/i;
+/** Small talk that needs no search even though no other topic matches. */
+const SMALL_TALK = /\b(joke|how are you|who are you|what can you do|your name|good (morning|night|evening)|thank(s| you))\b/i;
+
+/**
+ * Whether to search the web: when Kevin asks to, or when a real question matches none of his own sources
+ * ("did Maine have a gubernatorial election this month?").
+ */
+export function wantsWeb(question: string, otherTopics: Set<Topic>): boolean {
+  if (WEB_ASK.test(question)) return true;
+  return otherTopics.size === 0 && isQuestion(question) && !isReply(question) && !isAction(question) && !SMALL_TALK.test(question);
+}
+
+/** The search query: Kevin's own words, minus the wake word and "can you look up". */
+export function webQuery(question: string): string {
+  return question
+    .replace(/^\s*(hey\s+)?(jarvis|j)\b[\s,.:;!-]*/i, '')
+    .replace(/^\s*(can|could|would) you\s+/i, '')
+    .replace(/^\s*(please\s+)?(search( the web| online)?( for)?|look up|google|find out|check)\s+/i, '')
+    .replace(/\b(for me|online|on the web|on the internet)\b/gi, '')
+    .replace(/[?.!]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 export function classify(question: string): Set<Topic> {
   const topics = new Set<Topic>();
