@@ -37,6 +37,8 @@ export interface Config {
   webDir: string;
   voice: string;
   speed: number;
+  /** Phase 2 actions with confirmation (spec §14). */
+  actions: boolean;
   vaultDir: string;
   vaultScript: string;
   dashboardUrl: string;
@@ -78,6 +80,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     webDir: env.INTERCOM_WEB_DIR ?? path.join(root, 'web'),
     voice: env.INTERCOM_VOICE ?? 'bm_george',
     speed: Number(env.INTERCOM_SPEED ?? 1.3),
+    actions: env.INTERCOM_ACTIONS === '1',
     vaultDir: env.INTERCOM_VAULT_DIR ?? path.join(os.homedir(), 'JarvisVault'),
     vaultScript: path.join(root, 'scripts/vault_gather.py'),
     dashboardUrl: env.INTERCOM_DASHBOARD_URL ?? 'http://127.0.0.1:4180',

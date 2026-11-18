@@ -36,6 +36,8 @@
     <string>REPLACE_ALLOWED_LOGIN</string>
     <key>INTERCOM_HERMES_KEY</key>
     <string>REPLACE_HERMES_KEY</string>
+    <key>INTERCOM_ACTIONS</key>
+    <string>1</string>
     <key>INTERCOM_HERMES_PROFILE</key>
     <string>default</string>
   </dict>

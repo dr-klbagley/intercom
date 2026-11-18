@@ -4,13 +4,15 @@ import { wantsFresh, type Gatherer } from './gather.js';
 import type { AskHermes } from './hermes.js';
 import type { Speech } from './sidecar.js';
 import { classify, isQuestion, isReply, type Topic } from './topics.js';
-import { SpeechStream, VOICE_INSTRUCTIONS, type Card } from './voice.js';
+import type { ActionStore, ActionView } from './actions.js';
+import { ACTION_INSTRUCTIONS, SpeechStream, VOICE_INSTRUCTIONS, type Card } from './voice.js';
 
 export type TurnEvent =
   | { type: 'transcript'; text: string }
   | { type: 'status'; text: string; audio?: string }
   | { type: 'sentence'; text: string; audio?: string }
   | { type: 'card'; card: Card }
+  | { type: 'action'; action: ActionView }
   | { type: 'done'; text: string; ms: number }
   | { type: 'error'; message: string; spoken?: string; audio?: string };
 
@@ -71,6 +73,8 @@ export interface TurnDeps {
   /** Silence before the second filler (default 13 s). */
   longStatusDelayMs?: number;
   log?: (line: string) => void;
+  /** Phase 2 (spec §14): set only when INTERCOM_ACTIONS=1. */
+  actions?: ActionStore;
 }
 
 export class TurnRunner {
@@ -184,7 +188,7 @@ export class TurnRunner {
       const input2 = `QUESTION (spoken by Kevin): ${question}\n\nCONTEXT (gathered read-only by Intercom just now):\n${context}`;
       for await (const ev of this.deps.ask({
         input: input2,
-        instructions: VOICE_INSTRUCTIONS,
+        instructions: this.deps.actions ? VOICE_INSTRUCTIONS + ACTION_INSTRUCTIONS : VOICE_INSTRUCTIONS,
         sessionKey,
         idempotencyKey: `intercom-${input.turnId}`,
         signal,
@@ -204,6 +208,14 @@ export class TurnRunner {
       for (const s of end.sentences) emitSentence(s);
       await Promise.all(speakQueue);
       for (const card of end.cards) emit({ type: 'card', card });
+      // Proposed actions: checked against Slotherium / Mail, then shown for Kevin to confirm.
+      if (this.deps.actions) {
+        for (const raw of end.proposals.slice(0, 3)) {
+          const r = await this.deps.actions.propose(raw, input.device, question).catch((err: Error) => ({ error: err.message }));
+          if ('error' in r) this.deps.log?.(`turn ${input.turnId} action dropped: ${r.error}`);
+          else emit({ type: 'action', action: r });
+        }
+      }
       if (!full.trim()) return fail('empty_answer', 'Jarvis didn\'t have an answer.');
       const ms = Date.now() - started;
       // Timings only (ms from arrival): stt, gather, firstToken (Jarvis), firstAudio (first sentence ready), filler.

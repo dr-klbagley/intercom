@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import express from 'express';
 import { requireKevin } from './auth.js';
+import type { ActionStore } from './actions.js';
 import type { AudioStore, TurnEvent, TurnRunner } from './turns.js';
 
 export interface AppDeps {
@@ -12,6 +13,10 @@ export interface AppDeps {
   /** onnxruntime-web's dist folder, served at /vendor/ort for the wake word. */
   ortDir?: string;
   health: () => Promise<Record<string, boolean>>;
+  /** Phase 2 (spec §14), only when INTERCOM_ACTIONS=1. */
+  actions?: ActionStore;
+  /** Synthesizes a short line into the audio store; returns its id. */
+  speak?: (text: string) => Promise<string | undefined>;
 }
 
 const ID = /^[\w-]{1,64}$/;
@@ -85,8 +90,23 @@ export function createApp(deps: AppDeps) {
       if (e.type === 'sentence') sentences.push(e.text);
       else if (e.type === 'card') cards.push(e.card);
       else if (e.type === 'error') error = e.spoken ?? e.message;
+      else if (e.type === 'action') sentences.push('Open Intercom to confirm, sir.');
     });
     res.json({ speech: error ?? sentences.join(' '), cards });
+  });
+
+  // Phase 2: Kevin's tap on a confirmation card. Only the pending action's id (and his edits) come from
+  // the page; what runs is what Intercom checked and showed (spec §14.3).
+  api.post('/action/:id/:verb', express.json({ limit: '16kb' }), async (req, res) => {
+    if (!deps.actions) return void res.status(404).json({ error: 'actions_off' });
+    const { id, verb } = req.params;
+    if (!/^[0-9a-f-]{36}$/.test(id)) return void res.status(400).json({ error: 'bad_id' });
+    if (verb === 'cancel') return void res.json({ ok: deps.actions.cancel(id), message: 'Cancelled.' });
+    if (verb !== 'confirm') return void res.status(404).json({ error: 'not_found' });
+    const edits = req.body && typeof req.body.edits === 'object' ? req.body.edits as Record<string, unknown> : {};
+    const result = await deps.actions.confirm(id, edits);
+    const audio = req.body?.mute ? undefined : await deps.speak?.(result.message).catch(() => undefined);
+    res.json({ ...result, audio });
   });
 
   app.use('/api', api);

@@ -108,6 +108,65 @@
     log.scrollTop = log.scrollHeight;
   }
 
+  // Phase 2: a proposed action. Nothing happens until Kevin taps Confirm (spec §14.3).
+  function renderAction(a) {
+    $('empty')?.remove();
+    const el = document.createElement('section');
+    el.className = 'card action';
+    const h = document.createElement('h3'); h.textContent = a.title; el.appendChild(h);
+    const body = document.createElement('div'); body.className = 'action-body';
+    for (const line of a.lines || []) { const p = document.createElement('p'); p.className = 'line'; p.textContent = line; body.appendChild(p); }
+    const inputs = {};
+    for (const f of a.fields || []) {
+      const label = document.createElement('label'); label.className = 'field';
+      const span = document.createElement('span'); span.textContent = f.label; label.appendChild(span);
+      const input = document.createElement(f.type === 'textarea' ? 'textarea' : 'input');
+      if (f.type !== 'textarea') input.type = f.type;
+      if (f.type === 'textarea') input.rows = Math.min(10, Math.max(3, (f.value || '').split('\n').length + 1));
+      input.value = f.value || '';
+      label.appendChild(input); body.appendChild(label);
+      inputs[f.name] = input;
+    }
+    el.appendChild(body);
+    const bar = document.createElement('div'); bar.className = 'action-bar';
+    const status = document.createElement('span'); status.className = 'action-status';
+    const cancel = document.createElement('button'); cancel.className = 'btn btn-secondary'; cancel.textContent = 'Cancel';
+    const confirm = document.createElement('button'); confirm.className = 'btn btn-primary'; confirm.textContent = 'Confirm';
+    bar.append(status, cancel, confirm); el.appendChild(bar);
+    const finish = (text, state) => {
+      status.textContent = text; el.dataset.state = state;
+      cancel.remove(); confirm.remove();
+      for (const i of Object.values(inputs)) i.disabled = true;
+    };
+    const tick = () => {
+      if (el.dataset.state) return;
+      const left = a.expiresAt - Date.now();
+      if (left <= 0) return finish('Expired', 'expired');
+      status.textContent = `Expires in ${Math.ceil(left / 60000)} min`;
+      setTimeout(tick, 15_000);
+    };
+    tick();
+    cancel.onclick = async () => {
+      finish('Cancelled', 'cancelled');
+      fetch(`api/action/${a.id}/cancel`, { method: 'POST' }).catch(() => {});
+    };
+    confirm.onclick = async () => {
+      audioCtx();
+      confirm.disabled = cancel.disabled = true; status.textContent = 'Working…';
+      const edits = {}; for (const [k, i] of Object.entries(inputs)) edits[k] = i.value;
+      try {
+        const r = await fetch(`api/action/${a.id}/confirm`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ edits, mute: muted }) });
+        const j = await r.json();
+        finish(j.message || (j.ok ? 'Done' : 'Failed'), j.ok ? 'done' : 'failed');
+        stopSpeaking(); enqueueAudio(j.audio);
+      } catch {
+        finish(SERVERS_DOWN, 'failed'); speakLocally(SERVERS_DOWN);
+      }
+    };
+    log.appendChild(el);
+    log.scrollTop = log.scrollHeight;
+  }
+
   // When Intercom itself can't be reached there is no server voice, so the browser says it.
   const SERVERS_DOWN = 'My servers appear to be unreachable at the moment.';
   function speakLocally(text) {
@@ -151,6 +210,7 @@
             if (ev.audio) audioIds.push(ev.audio);
             enqueueAudio(ev.audio);
           } else if (ev.type === 'card') renderCard(ev.card);
+          else if (ev.type === 'action') renderAction(ev.action);
           else if (ev.type === 'error') { add('error', ev.spoken || ev.message); enqueueAudio(ev.audio); }
           else if (ev.type === 'done' && bubble) {
             const meta = document.createElement('span'); meta.className = 'meta'; meta.textContent = `${(ev.ms / 1000).toFixed(1)}s`;

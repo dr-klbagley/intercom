@@ -3,6 +3,7 @@ import { createApp } from './app.js';
 import { loadConfig } from './config.js';
 import { ScriptGatherer } from './gather.js';
 import { hermesClient, hermesReachable } from './hermes.js';
+import { ActionStore, mailFinder, mailReplier, vaultAudit } from './actions.js';
 import { sidecarClient } from './sidecar.js';
 import { formatTodos, slotheriumClient, type Todo } from './slotherium.js';
 import { AudioStore, TurnRunner } from './turns.js';
@@ -41,7 +42,20 @@ if (cfg.prefetchMinutes > 0) {
   setInterval(tick, cfg.prefetchMinutes * 60_000).unref();
 }
 
+const log = (line: string) => console.log(new Date().toISOString(), line);
+const actions = cfg.actions
+  ? new ActionStore({
+      slotherium,
+      findMessage: mailFinder(path.join(path.dirname(cfg.webDir), 'scripts/mail_find.py')),
+      sendReply: mailReplier(path.join(path.dirname(cfg.webDir), 'scripts/mail_reply.applescript')),
+      audit: vaultAudit(cfg.vaultDir),
+      log,
+    })
+  : undefined;
+if (actions) log('actions are ON (INTERCOM_ACTIONS=1)');
+
 const runner = new TurnRunner({
+  actions,
   speech,
   ask: hermesClient(hermesOpts),
   gatherer,
@@ -58,6 +72,8 @@ const app = createApp({
   allowedLogin: cfg.allowedLogin,
   devTrustLocal: cfg.devTrustLocal,
   webDir: cfg.webDir,
+  actions,
+  speak: async (text) => audio.put(await speech.speak(text, cfg.voice, cfg.speed)),
   ortDir: path.join(path.dirname(cfg.webDir), 'node_modules/onnxruntime-web/dist'),
   health: async () => {
     const [sidecar, hermes] = await Promise.all([speech.healthy(), hermesReachable(hermesOpts)]);

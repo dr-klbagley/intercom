@@ -269,8 +269,9 @@ First step: confirm which service hosts each account, then pick.
 7. ✅ Wake word in the browser, follow-up window, barge-in, wake lock (2026-11-17).
 8. ✅ Fillers while Jarvis works (revised twice on 2026-11-17, §6).
 9. ✅ Prefetch in place of the briefing cache (2026-11-17, §7).
-10. Read to-dos: Slotherium `list_todos` as a read-only topic ("what's on my list?"), with ids (needed for phase 2).
-11. Invites in the calendar context: Kevin's response status and the organizer for each event (additive fields in the calendar helper's output).
+10. ✅ Read to-dos: Slotherium `list_todos` as a read-only topic ("what's on my list?"), with ids (needed for phase 2).
+10b. ✅ Other profiles and apps (2026-11-17, Kevin's request): Fangorn's research (Entmoot), Gandalf's LinkedIn plan (Rivendell), Mind Stone, and the household dashboard, as read-only topics (`scripts/vault_gather.py`, dashboard `/api/status`). Friday (a separate macOS user's agent) is deliberately left out.
+11. Invites in the calendar context (waits on §14.5: Google's API would supply these): Kevin's response status and the organizer for each event (additive fields in the calendar helper's output).
 12. Cards: check the email, agenda and headline cards on the phone and give them the brand look.
 13. Siri Shortcut: build it on `/api/ask`, check that Tailscale identity reaches it, and fall back to a per-device key if it doesn't.
 
@@ -279,9 +280,9 @@ First step: confirm which service hosts each account, then pick.
 15. Voice and speed presets.
 
 **Phase 2 — actions with confirmation (§14), behind `INTERCOM_ACTIONS=1`**
-16. `intercom-action` blocks: parsing, validation, pending-action store, confirmation card with edit, Confirm/Cancel, expiry, audit log.
-17. To-dos: add, complete, update via Slotherium.
-18. Email replies via Apple Mail.
+16. ✅ `intercom-action` blocks: parsing, validation, pending-action store, confirmation card with edit, Confirm/Cancel, expiry, audit log.
+17. ✅ To-dos: add, complete, update via Slotherium.
+18. ✅ Email replies via Apple Mail (`scripts/mail_find.py` finds the exact message read-only; `scripts/mail_reply.applescript` replies from its account). Tested end to end up to the confirmation card; a real send has not been tested.
 19. Invites, once §14.5 is decided.
 
 Phases 1b and 2 are planned together and can be built in one stretch, but released separately: 1b is read-only, and phase 2 goes live behind its switch so it can be turned off without affecting daily use.

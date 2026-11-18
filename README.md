@@ -18,11 +18,13 @@ Design: [docs/specs/2026-11-16-intercom-design.md](docs/specs/2026-11-16-interco
 - **Speech model kept warm:** the sidecar transcribes a second of silence every 3 minutes, so macOS doesn't page Whisper out between questions (that once cost 12 s).
 - **Timings in the log:** each turn logs ms from arrival for stt, gather, firstToken, firstAudio and filler.
 - **Spoken replies** sentence by sentence, with the text and cards (emails, agenda, headlines) on screen. Mute, replay, typed questions and new conversation.
+- **Other apps and profiles:** open to-dos (Slotherium), Fangorn's research briefs and questions (Entmoot), Gandalf's LinkedIn plan (Rivendell), Mind Stone's proposals and corrections, and whether everything on the Mac mini is running (the household dashboard).
+- **Actions with confirmation (phase 2, `INTERCOM_ACTIONS=1`, on):** "add a to-do…", "mark the doctor one done", "move that to Monday", "reply to LaQuetta and say…". Jarvis drafts it; a card shows exactly what will happen, editable; nothing happens until you tap **Confirm**. To-dos go through Slotherium, replies through Apple Mail (to the real sender of the email Intercom found itself). Every confirm or cancel is logged in `Jarvis/Intercom actions.md` in the vault. Calendar actions aren't in yet (spec §14.5).
 - **Siri Shortcut endpoint** (`POST api/ask`); the Shortcut itself comes in phase 1b.
 
 If Hermes is down he says "My servers appear to be unreachable at the moment." (the browser says it itself if Intercom can't be reached at all). Times are spoken without the colon ("3 30"), which Kokoro otherwise pauses on.
 
-Not yet: "Hey J", condensed briefing answers, the Siri Shortcut itself, and actions (phase 2). See the spec's build order (§16).
+Not yet: "Hey J", the Siri Shortcut itself, card polish, and calendar actions. See the spec's build order (§16).
 
 ## How it works
 
