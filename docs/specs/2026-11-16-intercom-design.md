@@ -245,6 +245,24 @@ Kevin's events come from two accounts, **Healthy Together** (kbagley@twenty.co) 
 
 First step: confirm which service hosts each account, then pick.
 
+### 14.6 Recommendations for the rest (researched 2026-11-17; Kevin: to-dos are priority 1)
+
+**To-dos (built, priority 1).** Add, complete, reschedule and rename, with "Confirm all" for several at once; Jarvis sees open and recently completed to-dos and remembers the conversation. Next, if Kevin wants them:
+- *Voice confirm for to-dos only.* To-dos are low-risk and easy to undo, so "yes, add it" could confirm a to-do card by voice (email would still need a tap). Kevin's call.
+- *Household lists and assignment* ("add milk to the household list", "give that one to Blair"): Slotherium supports `list` and `assigned_to`, but Intercom would need the household's list names and user ids.
+
+**Calendar (recommended next).** Both of Kevin's accounts (Bagley Strategies, Healthy Together / twenty.co) are Google accounts in macOS.
+1. *See invites and responses:* an Intercom calendar helper (its own small app, so Jarvis's helper and his briefing are untouched) reading EventKit with attendees and Kevin's response. Needs one Calendar-access approval on the Mac mini's screen.
+2. *Create and move events:* EventKit can write to both Google calendars (changes sync up). Same confirmation card.
+3. *Accept or decline invites:* EventKit and Calendar.app can't. Try first replying to the invitation email with an iCalendar REPLY from Apple Mail (no sign-in; the organizer is updated; check whether Kevin's own copy updates too). If it doesn't, use Google Calendar's API with a one-time sign-in per account; twenty.co's administrator may block third-party sign-in, which would leave Healthy Together invites on the email route.
+4. *Jarvis in iMessage:* if this becomes a shared calendar service, give Jarvis's other channels read-only access at first, so an email can't talk him into changing the calendar.
+
+**Email.** Replies to the sender (or reply-all on request) are built; a real send is still untested. Recommend stopping there for now: new emails to arbitrary people and forwards add risk (wrong recipient) for little voice value.
+
+**Texts.** Not possible as Kevin: Messages on the Mac mini is signed in as Jarvis, so anything sent comes from Jarvis. "Text me a reminder at 3" can be a to-do with a due time, or a Jarvis cron reminder, instead.
+
+**Siri Shortcut (read-only quick win).** `/api/ask` exists; the Shortcut needs building and a check that Tailscale identity reaches it.
+
 ## 15. Testing
 
 - **Unit (vitest):** intent matching for the briefing cache, sentence splitting, TTS text cleanup, card parsing, session key handling, auth.
